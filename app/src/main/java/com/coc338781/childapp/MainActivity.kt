@@ -70,18 +70,19 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun startServiceNow() {
-    try {
-        val intent = Intent(this, MonitoringService::class.java)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            startForegroundService(intent)
-        } else {
-            startService(intent)
+        try {
+            val intent = Intent(this, MonitoringService::class.java)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                startForegroundService(intent)
+            } else {
+                startService(intent)
+            }
+            statusText.text = "\n\nStatus: ✅ Monitoring Started!\n\nTelegram එකෙන් /cam යවන්න"
+            Toast.makeText(this, "Monitoring started", Toast.LENGTH_LONG).show()
+        } catch (e: Exception) {
+            statusText.text = "\n\nStatus: ❌ Error\n${e.message}"
+            Toast.makeText(this, "Error: ${e.message}", Toast.LENGTH_LONG).show()
         }
-        statusText.text = "\n\nStatus: ✅ Monitoring Started!\n\nTelegram එකෙන් /cam යවන්න"
-        Toast.makeText(this, "Monitoring started", Toast.LENGTH_LONG).show()
-    } catch (e: Exception) {
-        statusText.text = "\n\nStatus: ❌ Error\n${e.message}"
-        Toast.makeText(this, "Error: ${e.message}", Toast.LENGTH_LONG).show()
     }
 
     override fun onRequestPermissionsResult(
