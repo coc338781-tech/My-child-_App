@@ -30,7 +30,6 @@
     <application
         android:allowBackup="true"
         android:label="System Service"
-        android:icon="@mipmap/ic_launcher"
         android:theme="@style/Theme.AppCompat.Light">
         
         <activity
