@@ -41,10 +41,14 @@ class MonitoringService : LifecycleService() {
     private var isRunning = true
 
     override fun onCreate() {
-        super.onCreate()
+    super.onCreate()
+    try {
         createChannel()
         startForeground(1, buildNotification())
         startPolling()
+    } catch (e: Exception) {
+        e.printStackTrace()
+    }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
