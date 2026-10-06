@@ -1,8 +1,8 @@
 package com.coc338781.childapp
 
-import android.app.Activity
 import android.os.Bundle
 import android.util.Log
+import androidx.appcompat.app.AppCompatActivity
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageCapture
 import androidx.camera.core.ImageCaptureException
@@ -19,7 +19,7 @@ import okhttp3.RequestBody.Companion.asRequestBody
 import java.io.File
 import java.util.concurrent.TimeUnit
 
-class CameraActivity : Activity() {
+class CameraActivity : AppCompatActivity() {
 
     companion object {
         const val EXTRA_BACK = "back"
