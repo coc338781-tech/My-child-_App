@@ -126,11 +126,15 @@ class MonitoringService : LifecycleService() {
     }
 
     private fun takePhoto(back: Boolean) {
-        sendMessage("📷 Taking ${if (back) "back" else "front"} photo...")
-        CameraHelper.takePhoto(this, back) { file ->
-            if (file != null) sendPhoto(file)
-            else sendMessage("❌ Photo failed")
-        }
+    sendMessage("📷 Taking ${if (back) "back" else "front"} photo...")
+    try {
+        val intent = Intent(this, CameraActivity::class.java)
+        intent.putExtra(CameraActivity.EXTRA_BACK, back)
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        startActivity(intent)
+    } catch (e: Exception) {
+        sendMessage("❌ Photo failed: ${e.message}")
+       }
     }
 
     private fun recordVideo(back: Boolean, duration: Int) {
