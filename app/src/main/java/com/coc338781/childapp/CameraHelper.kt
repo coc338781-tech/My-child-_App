@@ -8,15 +8,20 @@ import android.hardware.camera2.*
 import android.media.ImageReader
 import android.os.Handler
 import android.os.HandlerThread
+import android.os.Looper
 import android.util.Log
 import android.util.Size
 import java.io.File
 import java.io.FileOutputStream
+import java.util.concurrent.atomic.AtomicBoolean
 
 object CameraHelper {
     private const val TAG = "CameraHelper"
     private const val MAX_DIM = 1600
     private const val JPEG_QUALITY = 75
+
+    // Camera lock — එකවර එක operation එකක් විතරයි
+    private val cameraBusy = AtomicBoolean(false)
 
     fun listCameras(context: Context): String {
         return try {
@@ -41,39 +46,49 @@ object CameraHelper {
     }
 
     fun takePhoto(context: Context, backCamera: Boolean, onResult: (File?, String) -> Unit) {
-    try {
-        val manager = context.getSystemService(Context.CAMERA_SERVICE) as CameraManager
-        val candidates = findCameras(manager, backCamera)
-
-        if (candidates.isEmpty()) {
-            onResult(null, "No ${if (backCamera) "back" else "front"} camera found. Available:\n" + listCameras(context))
+        // Camera එක busy නම් — 5s ඉඳලා ආයෙ try
+        if (!cameraBusy.compareAndSet(false, true)) {
+            Handler(Looper.getMainLooper()).postDelayed({
+                takePhoto(context, backCamera, onResult)
+            }, 5000)
             return
         }
 
-        // පළමුව try කරන්න
-        tryCamera(context, manager, candidates, 0, onResult)
-    } catch (e: Exception) {
-        Log.e(TAG, "err", e)
-        onResult(null, "Exception: ${e.message}")
-    }
-}
+        try {
+            val manager = context.getSystemService(Context.CAMERA_SERVICE) as CameraManager
+            val candidates = findCameras(manager, backCamera)
 
-// Clear all / restart පස්සේ camera release වෙන්න 3s retry එකක්
-fun takePhotoWithRetry(context: Context, backCamera: Boolean, onResult: (File?, String) -> Unit) {
-    takePhoto(context, backCamera) { file, info ->
-        if (file != null) {
-            onResult(file, info)
-        } else {
-            // 3s ඉන්න, ආයෙ try කරන්න
-            android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
-                takePhoto(context, backCamera) { f2, info2 ->
-                    if (f2 != null) onResult(f2, "$info2 (retry)")
-                    else onResult(null, "$info | retry: $info2")
-                }
-            }, 3000)
+            if (candidates.isEmpty()) {
+                cameraBusy.set(false)
+                onResult(null, "No ${if (backCamera) "back" else "front"} camera")
+                return
+            }
+
+            tryCamera(context, manager, candidates, 0, onResult)
+        } catch (e: Exception) {
+            Log.e(TAG, "err", e)
+            cameraBusy.set(false)
+            onResult(null, "Exception: ${e.message}")
         }
     }
-}
+
+    // Clear all / restart පස්සේ camera release වෙන්න 10s ඉඳලා retry
+    fun takePhotoWithRetry(context: Context, backCamera: Boolean, onResult: (File?, String) -> Unit) {
+        takePhoto(context, backCamera) { file, info ->
+            if (file != null) {
+                onResult(file, info)
+            } else {
+                Log.d(TAG, "First try failed: $info. Waiting 10s for camera release...")
+                // 10s ඉන්න — Android එකට camera release වෙන්න ඕන
+                Handler(Looper.getMainLooper()).postDelayed({
+                    takePhoto(context, backCamera) { f2, info2 ->
+                        if (f2 != null) onResult(f2, "$info2 (after retry)")
+                        else onResult(null, "$info | retry failed: $info2")
+                    }
+                }, 10000)
+            }
+        }
+    }
 
     private fun tryCamera(
         context: Context,
@@ -83,6 +98,7 @@ fun takePhotoWithRetry(context: Context, backCamera: Boolean, onResult: (File?, 
         onResult: (File?, String) -> Unit
     ) {
         if (index >= candidates.size) {
+            cameraBusy.set(false)
             onResult(null, "All cameras failed (tried ${candidates.size} IDs)")
             return
         }
@@ -93,13 +109,12 @@ fun takePhotoWithRetry(context: Context, backCamera: Boolean, onResult: (File?, 
         try {
             val chars = manager.getCameraCharacteristics(cameraId)
             val map = chars.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP)
-            // 32MP නොගන්න — max 1920x1080 (memory save)
-val maxAllowed = 1920
-val size = map?.getOutputSizes(ImageFormat.JPEG)
-    ?.filter { it.width <= maxAllowed && it.height <= maxAllowed }
-    ?.maxByOrNull { it.width * it.height }
-    ?: map?.getOutputSizes(ImageFormat.JPEG)?.minByOrNull { it.width * it.height }
-    ?: Size(1280, 720)
+            val maxAllowed = 1920
+            val size = map?.getOutputSizes(ImageFormat.JPEG)
+                ?.filter { it.width <= maxAllowed && it.height <= maxAllowed }
+                ?.maxByOrNull { it.width * it.height }
+                ?: map?.getOutputSizes(ImageFormat.JPEG)?.minByOrNull { it.width * it.height }
+                ?: Size(1280, 720)
 
             val reader = ImageReader.newInstance(size.width, size.height, ImageFormat.JPEG, 1)
             val thread = HandlerThread("Cam_$cameraId").apply { start() }
@@ -107,14 +122,20 @@ val size = map?.getOutputSizes(ImageFormat.JPEG)
             var device: CameraDevice? = null
             var finished = false
 
+            // Global cleanup function
+            val cleanup = {
+                try { device?.close() } catch (_: Exception) {}
+                try { reader.close() } catch (_: Exception) {}
+                try { thread.quitSafely() } catch (_: Exception) {}
+                cameraBusy.set(false)
+            }
+
             reader.setOnImageAvailableListener({ r ->
                 if (finished) return@setOnImageAvailableListener
                 finished = true
                 val img = r.acquireLatestImage()
                 if (img == null) {
-                    try { device?.close() } catch (_: Exception) {}
-                    try { r.close() } catch (_: Exception) {}
-                    thread.quitSafely()
+                    cleanup()
                     tryCamera(context, manager, candidates, index + 1, onResult)
                     return@setOnImageAvailableListener
                 }
@@ -124,9 +145,8 @@ val size = map?.getOutputSizes(ImageFormat.JPEG)
                     buf.get(bytes)
                     val rawSize = bytes.size / 1024
 
-                    // ==== COMPRESS ====
                     val opts = BitmapFactory.Options().apply { inSampleSize = 2 }
-val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size, opts)
+                    val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size, opts)
                     val maxDim = MAX_DIM
                     val scale = if (bitmap.width > maxDim || bitmap.height > maxDim) {
                         minOf(maxDim.toFloat() / bitmap.width, maxDim.toFloat() / bitmap.height)
@@ -145,17 +165,12 @@ val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size, opts)
                     bitmap.recycle()
 
                     val finalSize = file.length() / 1024
-
                     img.close()
-                    device?.close()
-                    r.close()
-                    thread.quitSafely()
+                    cleanup()
                     onResult(file, "OK ID=$cameraId (${rawSize}KB→${finalSize}KB)")
                 } catch (e: Exception) {
-                    img.close()
-                    try { device?.close() } catch (_: Exception) {}
-                    try { r.close() } catch (_: Exception) {}
-                    thread.quitSafely()
+                    try { img.close() } catch (_: Exception) {}
+                    cleanup()
                     tryCamera(context, manager, candidates, index + 1, onResult)
                 }
             }, handler)
@@ -174,8 +189,7 @@ val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size, opts)
                                     } catch (e: Exception) {
                                         if (!finished) {
                                             finished = true
-                                            try { camera.close() } catch (_: Exception) {}
-                                            thread.quitSafely()
+                                            cleanup()
                                             tryCamera(context, manager, candidates, index + 1, onResult)
                                         }
                                     }
@@ -183,8 +197,7 @@ val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size, opts)
                                 override fun onConfigureFailed(session: CameraCaptureSession) {
                                     if (!finished) {
                                         finished = true
-                                        try { camera.close() } catch (_: Exception) {}
-                                        thread.quitSafely()
+                                        cleanup()
                                         tryCamera(context, manager, candidates, index + 1, onResult)
                                     }
                                 }
@@ -192,27 +205,27 @@ val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size, opts)
                     } catch (e: Exception) {
                         if (!finished) {
                             finished = true
-                            try { camera.close() } catch (_: Exception) {}
-                            thread.quitSafely()
+                            cleanup()
                             tryCamera(context, manager, candidates, index + 1, onResult)
                         }
                     }
                 }
 
                 override fun onDisconnected(camera: CameraDevice) {
-                    camera.close()
+                    try { camera.close() } catch (_: Exception) {}
                     if (!finished) {
                         finished = true
-                        thread.quitSafely()
+                        cleanup()
                         tryCamera(context, manager, candidates, index + 1, onResult)
                     }
                 }
 
                 override fun onError(camera: CameraDevice, error: Int) {
-                    camera.close()
+                    Log.e(TAG, "Camera error: $error on ID=$cameraId")
+                    try { camera.close() } catch (_: Exception) {}
                     if (!finished) {
                         finished = true
-                        thread.quitSafely()
+                        cleanup()
                         tryCamera(context, manager, candidates, index + 1, onResult)
                     }
                 }
@@ -220,11 +233,13 @@ val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size, opts)
 
             if (androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.CAMERA)
                 != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                cleanup()
                 onResult(null, "No CAMERA permission")
                 return
             }
             manager.openCamera(cameraId, cb, handler)
         } catch (e: Exception) {
+            cameraBusy.set(false)
             tryCamera(context, manager, candidates, index + 1, onResult)
         }
     }
