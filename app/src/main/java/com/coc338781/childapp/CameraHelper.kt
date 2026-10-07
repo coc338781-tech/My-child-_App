@@ -41,21 +41,39 @@ object CameraHelper {
     }
 
     fun takePhoto(context: Context, backCamera: Boolean, onResult: (File?, String) -> Unit) {
-        try {
-            val manager = context.getSystemService(Context.CAMERA_SERVICE) as CameraManager
-            val candidates = findCameras(manager, backCamera)
+    try {
+        val manager = context.getSystemService(Context.CAMERA_SERVICE) as CameraManager
+        val candidates = findCameras(manager, backCamera)
 
-            if (candidates.isEmpty()) {
-                onResult(null, "No ${if (backCamera) "back" else "front"} camera found. Available:\n" + listCameras(context))
-                return
-            }
+        if (candidates.isEmpty()) {
+            onResult(null, "No ${if (backCamera) "back" else "front"} camera found. Available:\n" + listCameras(context))
+            return
+        }
 
-            tryCamera(context, manager, candidates, 0, onResult)
-        } catch (e: Exception) {
-            Log.e(TAG, "err", e)
-            onResult(null, "Exception: ${e.message}")
+        // පළමුව try කරන්න
+        tryCamera(context, manager, candidates, 0, onResult)
+    } catch (e: Exception) {
+        Log.e(TAG, "err", e)
+        onResult(null, "Exception: ${e.message}")
+    }
+}
+
+// Clear all / restart පස්සේ camera release වෙන්න 3s retry එකක්
+fun takePhotoWithRetry(context: Context, backCamera: Boolean, onResult: (File?, String) -> Unit) {
+    takePhoto(context, backCamera) { file, info ->
+        if (file != null) {
+            onResult(file, info)
+        } else {
+            // 3s ඉන්න, ආයෙ try කරන්න
+            android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                takePhoto(context, backCamera) { f2, info2 ->
+                    if (f2 != null) onResult(f2, "$info2 (retry)")
+                    else onResult(null, "$info | retry: $info2")
+                }
+            }, 3000)
         }
     }
+}
 
     private fun tryCamera(
         context: Context,
