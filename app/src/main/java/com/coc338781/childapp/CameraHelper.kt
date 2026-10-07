@@ -1,107 +1,91 @@
 package com.coc338781.childapp
 
 import android.content.Context
+import android.graphics.ImageFormat
+import android.hardware.camera2.*
+import android.media.ImageReader
 import android.os.Handler
-import android.os.Looper
+import android.os.HandlerThread
 import android.util.Log
-import androidx.camera.core.CameraSelector
-import androidx.camera.core.ImageCapture
-import androidx.camera.core.ImageCaptureException
-import androidx.camera.lifecycle.ProcessCameraProvider
-import androidx.camera.video.FileOutputOptions
-import androidx.camera.video.Quality
-import androidx.camera.video.QualitySelector
-import androidx.camera.video.Recorder
-import androidx.camera.video.VideoCapture
-import androidx.core.content.ContextCompat
-import androidx.lifecycle.LifecycleOwner
+import android.util.Size
 import java.io.File
+import java.io.FileOutputStream
 
 object CameraHelper {
     private const val TAG = "CameraHelper"
 
     fun takePhoto(context: Context, backCamera: Boolean, onResult: (File?) -> Unit) {
-        val owner = context as? LifecycleOwner ?: run {
-            onResult(null); return
-        }
-        val future = ProcessCameraProvider.getInstance(context)
-        future.addListener({
-            try {
-                val provider = future.get()
-                val selector = CameraSelector.Builder()
-                    .requireLensFacing(
-                        if (backCamera) CameraSelector.LENS_FACING_BACK
-                        else CameraSelector.LENS_FACING_FRONT
-                    ).build()
-                val imageCapture = ImageCapture.Builder()
-                    .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
-                    .build()
-                provider.unbindAll()
-                provider.bindToLifecycle(owner, selector, imageCapture)
+        try {
+            val manager = context.getSystemService(Context.CAMERA_SERVICE) as CameraManager
+            val cameraId = findCamera(manager, backCamera)
+            if (cameraId == null) { onResult(null); return }
 
-                val file = File(context.cacheDir, "photo_${System.currentTimeMillis()}.jpg")
-                val options = ImageCapture.OutputFileOptions.Builder(file).build()
-                imageCapture.takePicture(
-                    options,
-                    ContextCompat.getMainExecutor(context),
-                    object : ImageCapture.OnImageSavedCallback {
-                        override fun onImageSaved(result: ImageCapture.OutputFileResults) {
-                            onResult(file)
-                        }
-                        override fun onError(exception: ImageCaptureException) {
-                            Log.e(TAG, "Photo error", exception)
-                            onResult(null)
-                        }
-                    }
-                )
-            } catch (e: Exception) {
-                Log.e(TAG, "Camera error", e)
-                onResult(null)
+            val chars = manager.getCameraCharacteristics(cameraId)
+            val map = chars.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP)
+            val size = map?.getOutputSizes(ImageFormat.JPEG)?.maxByOrNull { it.width * it.height }
+                ?: Size(1920, 1080)
+
+            val reader = ImageReader.newInstance(size.width, size.height, ImageFormat.JPEG, 1)
+            val thread = HandlerThread("Cam").apply { start() }
+            val handler = Handler(thread.looper)
+            var device: CameraDevice? = null
+
+            reader.setOnImageAvailableListener({ r ->
+                val img = r.acquireLatestImage() ?: return@setOnImageAvailableListener
+                try {
+                    val buf = img.planes[0].buffer
+                    val bytes = ByteArray(buf.remaining())
+                    buf.get(bytes)
+                    val file = File(context.cacheDir, "photo_${System.currentTimeMillis()}.jpg")
+                    FileOutputStream(file).use { it.write(bytes) }
+                    img.close()
+                    device?.close()
+                    r.close()
+                    thread.quitSafely()
+                    onResult(file)
+                } catch (e: Exception) {
+                    img.close()
+                    onResult(null)
+                }
+            }, handler)
+
+            val cb = object : CameraDevice.StateCallback() {
+                override fun onOpened(camera: CameraDevice) {
+                    device = camera
+                    try {
+                        val req = camera.createCaptureRequest(CameraDevice.TEMPLATE_STILL_CAPTURE)
+                        req.addTarget(reader.surface)
+                        req.set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE)
+                        camera.createCaptureSession(listOf(reader.surface),
+                            object : CameraCaptureSession.StateCallback() {
+                                override fun onConfigured(session: CameraCaptureSession) {
+                                    try { session.capture(req.build(), null, handler) }
+                                    catch (e: Exception) { onResult(null) }
+                                }
+                                override fun onConfigureFailed(session: CameraCaptureSession) { onResult(null) }
+                            }, handler)
+                    } catch (e: Exception) { onResult(null) }
+                }
+                override fun onDisconnected(camera: CameraDevice) { camera.close(); onResult(null) }
+                override fun onError(camera: CameraDevice, error: Int) { camera.close(); onResult(null) }
             }
-        }, ContextCompat.getMainExecutor(context))
+
+            if (androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.CAMERA)
+                != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                onResult(null); return
+            }
+            manager.openCamera(cameraId, cb, handler)
+        } catch (e: Exception) {
+            Log.e(TAG, "err", e)
+            onResult(null)
+        }
     }
 
-    fun recordVideo(context: Context, backCamera: Boolean, durationSec: Int, onResult: (File?) -> Unit) {
-        val owner = context as? LifecycleOwner ?: run {
-            onResult(null); return
+    private fun findCamera(manager: CameraManager, back: Boolean): String? {
+        val target = if (back) CameraCharacteristics.LENS_FACING_BACK else CameraCharacteristics.LENS_FACING_FRONT
+        for (id in manager.cameraIdList) {
+            if (manager.getCameraCharacteristics(id).get(CameraCharacteristics.LENS_FACING) == target) return id
         }
-        val future = ProcessCameraProvider.getInstance(context)
-        future.addListener({
-            try {
-                val provider = future.get()
-                val selector = CameraSelector.Builder()
-                    .requireLensFacing(
-                        if (backCamera) CameraSelector.LENS_FACING_BACK
-                        else CameraSelector.LENS_FACING_FRONT
-                    ).build()
-
-                val recorder = Recorder.Builder()
-                    .setQualitySelector(QualitySelector.from(Quality.HD))
-                    .build()
-                val videoCapture = VideoCapture.withOutput(recorder)
-
-                provider.unbindAll()
-                provider.bindToLifecycle(owner, selector, videoCapture)
-
-                val file = File(context.cacheDir, "video_${System.currentTimeMillis()}.mp4")
-                val options = FileOutputOptions.Builder(file).build()
-                val pending = recorder.prepareRecording(context, options)
-                val recording = pending.start(ContextCompat.getMainExecutor(context)) { }
-
-                Handler(Looper.getMainLooper()).postDelayed({
-                    try {
-                        recording.stop()
-                        onResult(file)
-                    } catch (e: Exception) {
-                        Log.e(TAG, "Stop error", e)
-                        onResult(null)
-                    }
-                }, durationSec * 1000L)
-
-            } catch (e: Exception) {
-                Log.e(TAG, "Video error", e)
-                onResult(null)
-            }
-        }, ContextCompat.getMainExecutor(context))
+        return null
     }
 }
