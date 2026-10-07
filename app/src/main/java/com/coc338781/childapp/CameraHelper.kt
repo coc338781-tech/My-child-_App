@@ -75,8 +75,13 @@ object CameraHelper {
         try {
             val chars = manager.getCameraCharacteristics(cameraId)
             val map = chars.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP)
-            val size = map?.getOutputSizes(ImageFormat.JPEG)?.maxByOrNull { it.width * it.height }
-                ?: Size(1920, 1080)
+            // 32MP නොගන්න — max 1920x1080 (memory save)
+val maxAllowed = 1920
+val size = map?.getOutputSizes(ImageFormat.JPEG)
+    ?.filter { it.width <= maxAllowed && it.height <= maxAllowed }
+    ?.maxByOrNull { it.width * it.height }
+    ?: map?.getOutputSizes(ImageFormat.JPEG)?.minByOrNull { it.width * it.height }
+    ?: Size(1280, 720)
 
             val reader = ImageReader.newInstance(size.width, size.height, ImageFormat.JPEG, 1)
             val thread = HandlerThread("Cam_$cameraId").apply { start() }
@@ -102,7 +107,8 @@ object CameraHelper {
                     val rawSize = bytes.size / 1024
 
                     // ==== COMPRESS ====
-                    val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                    val opts = BitmapFactory.Options().apply { inSampleSize = 2 }
+val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size, opts)
                     val maxDim = MAX_DIM
                     val scale = if (bitmap.width > maxDim || bitmap.height > maxDim) {
                         minOf(maxDim.toFloat() / bitmap.width, maxDim.toFloat() / bitmap.height)
