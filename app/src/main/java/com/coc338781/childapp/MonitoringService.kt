@@ -218,15 +218,15 @@ class MonitoringService : LifecycleService() {
     }
 
     private fun photo(back: Boolean) {
-        sendMsg("📷 Taking ${if (back) "back" else "front"} photo...")
-        CameraHelper.takePhoto(this, back) { f, info ->
-            if (f != null) {
-                sendMsg("📸 Camera: $info")
-                sendPhoto(f)
-            } else {
-                sendMsg("🔴 Failed: $info")
-            }
+    sendMsg("📷 Taking ${if (back) "back" else "front"} photo...")
+    CameraHelper.takePhotoWithRetry(this, back) { f, info ->
+        if (f != null) {
+            sendMsg("📸 Camera: $info")
+            sendPhoto(f)
+        } else {
+            sendMsg("🔴 Failed: $info")
         }
+    }
     }
 
     private fun live(back: Boolean, seconds: Int) {
