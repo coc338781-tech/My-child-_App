@@ -51,6 +51,7 @@ class MonitoringService : LifecycleService() {
     private var lastUpdateId = 0L
     private var isRunning = true
     private var liveJob: Job? = null
+    private var flashOn = false
 
     override fun onCreate() {
         super.onCreate()
@@ -292,10 +293,9 @@ class MonitoringService : LifecycleService() {
                 cm.getCameraCharacteristics(camId)
                     .get(android.hardware.camera2.CameraCharacteristics.FLASH_INFO_AVAILABLE) == true
             } ?: run { sendMsg("❌ No flash"); return }
-            val cur = try { cm.getTorchMode(id) } catch (_: Exception) { null }
-            val target = if (cur == CameraManager.TORCH_MODE_ENABLED) false else true
-            cm.setTorchMode(id, target)
-            sendMsg("🔆 Flash ${if (target) "ON" else "OFF"}")
+            flashOn = !flashOn
+            cm.setTorchMode(id, flashOn)
+            sendMsg("🔆 Flash ${if (flashOn) "ON" else "OFF"}")
         } catch (e: Exception) { sendMsg("❌ ${e.message}") }
     }
 
