@@ -122,16 +122,29 @@ class MonitoringService : LifecycleService() {
     }
 
     override fun onTaskRemoved(rootIntent: Intent?) {
-        super.onTaskRemoved(rootIntent)
-        try {
-            val restart = Intent(applicationContext, MonitoringService::class.java)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                applicationContext.startForegroundService(restart)
-            } else {
-                applicationContext.startService(restart)
-            }
-        } catch (_: Exception) {}
-    }
+    super.onTaskRemoved(rootIntent)
+    // Watchdog එකට restart schedule කරන්න
+    try {
+        val am = getSystemService(Context.ALARM_SERVICE) as android.app.AlarmManager
+        val intent = Intent(this, WatchdogReceiver::class.java)
+        val pi = android.app.PendingIntent.getBroadcast(
+            this, 1001, intent,
+            android.app.PendingIntent.FLAG_UPDATE_CURRENT or
+            android.app.PendingIntent.FLAG_IMMUTABLE
+        )
+        am.setExactAndAllowWhileIdle(
+            android.app.AlarmManager.ELAPSED_REALTIME_WAKEUP,
+            android.os.SystemClock.elapsedRealtime() + 8000L,
+            pi
+        )
+    } catch (_: Exception) {}
+
+    // මුළු process එකම මරන්න — camera state release වෙන්න
+    // Watchdog එක අලුත් process එකක් start කරනවා
+    android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+        android.os.Process.killProcess(android.os.Process.myPid())
+    }, 1000L)
+}
 
     private fun scheduleWatchdog() {
         try {
