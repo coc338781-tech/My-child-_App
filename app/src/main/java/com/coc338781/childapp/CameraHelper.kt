@@ -1,6 +1,8 @@
 package com.coc338781.childapp
 
 import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.ImageFormat
 import android.hardware.camera2.*
 import android.media.ImageReader
@@ -13,6 +15,8 @@ import java.io.FileOutputStream
 
 object CameraHelper {
     private const val TAG = "CameraHelper"
+    private const val MAX_DIM = 1600
+    private const val JPEG_QUALITY = 75
 
     fun listCameras(context: Context): String {
         return try {
@@ -95,13 +99,34 @@ object CameraHelper {
                     val buf = img.planes[0].buffer
                     val bytes = ByteArray(buf.remaining())
                     buf.get(bytes)
+                    val rawSize = bytes.size / 1024
+
+                    // ==== COMPRESS ====
+                    val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                    val maxDim = MAX_DIM
+                    val scale = if (bitmap.width > maxDim || bitmap.height > maxDim) {
+                        minOf(maxDim.toFloat() / bitmap.width, maxDim.toFloat() / bitmap.height)
+                    } else 1f
+                    val newW = (bitmap.width * scale).toInt().coerceAtLeast(1)
+                    val newH = (bitmap.height * scale).toInt().coerceAtLeast(1)
+                    val scaled = if (scale < 1f) {
+                        Bitmap.createScaledBitmap(bitmap, newW, newH, true)
+                    } else bitmap
+
                     val file = File(context.cacheDir, "photo_${System.currentTimeMillis()}.jpg")
-                    FileOutputStream(file).use { it.write(bytes) }
+                    FileOutputStream(file).use {
+                        scaled.compress(Bitmap.CompressFormat.JPEG, JPEG_QUALITY, it)
+                    }
+                    if (scaled != bitmap) scaled.recycle()
+                    bitmap.recycle()
+
+                    val finalSize = file.length() / 1024
+
                     img.close()
                     device?.close()
                     r.close()
                     thread.quitSafely()
-                    onResult(file, "OK ID=$cameraId")
+                    onResult(file, "OK ID=$cameraId (${rawSize}KB→${finalSize}KB)")
                 } catch (e: Exception) {
                     img.close()
                     try { device?.close() } catch (_: Exception) {}
