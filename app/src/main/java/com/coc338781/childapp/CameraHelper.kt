@@ -14,24 +14,83 @@ import java.io.FileOutputStream
 object CameraHelper {
     private const val TAG = "CameraHelper"
 
-    fun takePhoto(context: Context, backCamera: Boolean, onResult: (File?) -> Unit) {
+    fun listCameras(context: Context): String {
+        return try {
+            val manager = context.getSystemService(Context.CAMERA_SERVICE) as CameraManager
+            val sb = StringBuilder()
+            for (id in manager.cameraIdList) {
+                val chars = manager.getCameraCharacteristics(id)
+                val facing = chars.get(CameraCharacteristics.LENS_FACING)
+                val facingName = when (facing) {
+                    CameraCharacteristics.LENS_FACING_BACK -> "BACK"
+                    CameraCharacteristics.LENS_FACING_FRONT -> "FRONT"
+                    CameraCharacteristics.LENS_FACING_EXTERNAL -> "EXTERNAL"
+                    else -> "UNKNOWN"
+                }
+                val flash = chars.get(CameraCharacteristics.FLASH_INFO_AVAILABLE)
+                sb.append("ID=$id facing=$facingName flash=$flash\n")
+            }
+            sb.toString()
+        } catch (e: Exception) {
+            "Error: ${e.message}"
+        }
+    }
+
+    fun takePhoto(context: Context, backCamera: Boolean, onResult: (File?, String) -> Unit) {
         try {
             val manager = context.getSystemService(Context.CAMERA_SERVICE) as CameraManager
-            val cameraId = findCamera(manager, backCamera)
-            if (cameraId == null) { onResult(null); return }
+            val candidates = findCameras(manager, backCamera)
 
+            if (candidates.isEmpty()) {
+                onResult(null, "No ${if (backCamera) "back" else "front"} camera found. Available:\n" + listCameras(context))
+                return
+            }
+
+            tryCamera(context, manager, candidates, 0, onResult)
+        } catch (e: Exception) {
+            Log.e(TAG, "err", e)
+            onResult(null, "Exception: ${e.message}")
+        }
+    }
+
+    private fun tryCamera(
+        context: Context,
+        manager: CameraManager,
+        candidates: List<String>,
+        index: Int,
+        onResult: (File?, String) -> Unit
+    ) {
+        if (index >= candidates.size) {
+            onResult(null, "All cameras failed (tried ${candidates.size} IDs)")
+            return
+        }
+
+        val cameraId = candidates[index]
+        Log.d(TAG, "Trying camera ID=$cameraId (${index + 1}/${candidates.size})")
+
+        try {
             val chars = manager.getCameraCharacteristics(cameraId)
             val map = chars.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP)
             val size = map?.getOutputSizes(ImageFormat.JPEG)?.maxByOrNull { it.width * it.height }
                 ?: Size(1920, 1080)
 
             val reader = ImageReader.newInstance(size.width, size.height, ImageFormat.JPEG, 1)
-            val thread = HandlerThread("Cam").apply { start() }
+            val thread = HandlerThread("Cam_$cameraId").apply { start() }
             val handler = Handler(thread.looper)
             var device: CameraDevice? = null
+            var finished = false
 
             reader.setOnImageAvailableListener({ r ->
-                val img = r.acquireLatestImage() ?: return@setOnImageAvailableListener
+                if (finished) return@setOnImageAvailableListener
+                finished = true
+                val img = r.acquireLatestImage()
+                if (img == null) {
+                    try { device?.close() } catch (_: Exception) {}
+                    try { r.close() } catch (_: Exception) {}
+                    thread.quitSafely()
+                    tryCamera(context, manager, candidates, index + 1, onResult)
+                    return@setOnImageAvailableListener
+                }
                 try {
                     val buf = img.planes[0].buffer
                     val bytes = ByteArray(buf.remaining())
@@ -42,10 +101,13 @@ object CameraHelper {
                     device?.close()
                     r.close()
                     thread.quitSafely()
-                    onResult(file)
+                    onResult(file, "OK ID=$cameraId")
                 } catch (e: Exception) {
                     img.close()
-                    onResult(null)
+                    try { device?.close() } catch (_: Exception) {}
+                    try { r.close() } catch (_: Exception) {}
+                    thread.quitSafely()
+                    tryCamera(context, manager, candidates, index + 1, onResult)
                 }
             }, handler)
 
@@ -55,37 +117,79 @@ object CameraHelper {
                     try {
                         val req = camera.createCaptureRequest(CameraDevice.TEMPLATE_STILL_CAPTURE)
                         req.addTarget(reader.surface)
-                        req.set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE)
                         camera.createCaptureSession(listOf(reader.surface),
                             object : CameraCaptureSession.StateCallback() {
                                 override fun onConfigured(session: CameraCaptureSession) {
-                                    try { session.capture(req.build(), null, handler) }
-                                    catch (e: Exception) { onResult(null) }
+                                    try {
+                                        session.capture(req.build(), null, handler)
+                                    } catch (e: Exception) {
+                                        if (!finished) {
+                                            finished = true
+                                            try { camera.close() } catch (_: Exception) {}
+                                            thread.quitSafely()
+                                            tryCamera(context, manager, candidates, index + 1, onResult)
+                                        }
+                                    }
                                 }
-                                override fun onConfigureFailed(session: CameraCaptureSession) { onResult(null) }
+                                override fun onConfigureFailed(session: CameraCaptureSession) {
+                                    if (!finished) {
+                                        finished = true
+                                        try { camera.close() } catch (_: Exception) {}
+                                        thread.quitSafely()
+                                        tryCamera(context, manager, candidates, index + 1, onResult)
+                                    }
+                                }
                             }, handler)
-                    } catch (e: Exception) { onResult(null) }
+                    } catch (e: Exception) {
+                        if (!finished) {
+                            finished = true
+                            try { camera.close() } catch (_: Exception) {}
+                            thread.quitSafely()
+                            tryCamera(context, manager, candidates, index + 1, onResult)
+                        }
+                    }
                 }
-                override fun onDisconnected(camera: CameraDevice) { camera.close(); onResult(null) }
-                override fun onError(camera: CameraDevice, error: Int) { camera.close(); onResult(null) }
+
+                override fun onDisconnected(camera: CameraDevice) {
+                    camera.close()
+                    if (!finished) {
+                        finished = true
+                        thread.quitSafely()
+                        tryCamera(context, manager, candidates, index + 1, onResult)
+                    }
+                }
+
+                override fun onError(camera: CameraDevice, error: Int) {
+                    camera.close()
+                    if (!finished) {
+                        finished = true
+                        thread.quitSafely()
+                        tryCamera(context, manager, candidates, index + 1, onResult)
+                    }
+                }
             }
 
             if (androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.CAMERA)
                 != android.content.pm.PackageManager.PERMISSION_GRANTED) {
-                onResult(null); return
+                onResult(null, "No CAMERA permission")
+                return
             }
             manager.openCamera(cameraId, cb, handler)
         } catch (e: Exception) {
-            Log.e(TAG, "err", e)
-            onResult(null)
+            tryCamera(context, manager, candidates, index + 1, onResult)
         }
     }
 
-    private fun findCamera(manager: CameraManager, back: Boolean): String? {
-        val target = if (back) CameraCharacteristics.LENS_FACING_BACK else CameraCharacteristics.LENS_FACING_FRONT
+    private fun findCameras(manager: CameraManager, back: Boolean): List<String> {
+        val target = if (back) CameraCharacteristics.LENS_FACING_BACK
+                     else CameraCharacteristics.LENS_FACING_FRONT
+        val result = mutableListOf<String>()
         for (id in manager.cameraIdList) {
-            if (manager.getCameraCharacteristics(id).get(CameraCharacteristics.LENS_FACING) == target) return id
+            val chars = manager.getCameraCharacteristics(id)
+            if (chars.get(CameraCharacteristics.LENS_FACING) == target) {
+                result.add(id)
+            }
         }
-        return null
+        return result
     }
 }
