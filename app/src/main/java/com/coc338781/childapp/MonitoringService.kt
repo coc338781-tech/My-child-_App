@@ -158,25 +158,33 @@ class MonitoringService : LifecycleService() {
    } 
 
     private fun live(back: Boolean, seconds: Int) {
-        liveJob?.cancel()
-        sendMsg("🔴 Live camera started (${seconds}s, 1 photo/s)")
-        liveJob = lifecycleScope.launch(Dispatchers.IO) {
-            val end = System.currentTimeMillis() + seconds * 1000L
-            var count = 0
-            while (System.currentTimeMillis() < end && isRunning) {
-                val done = java.util.concurrent.CountDownLatch(1)
-                withContext(Dispatchers.Main) {
-                    CameraHelper.takePhoto(this@MonitoringService, back) { f ->
-                        if (f != null) sendPhotoFile(f)
-                        done.countDown()
-                    }
+    liveJob?.cancel()
+    sendMsg("🔴 Live camera started (${seconds}s)")
+    liveJob = lifecycleScope.launch(Dispatchers.IO) {
+        val end = System.currentTimeMillis() + seconds * 1000L
+        var count = 0
+        var firstInfo = ""
+        while (System.currentTimeMillis() < end && isRunning) {
+            val done = java.util.concurrent.CountDownLatch(1)
+            var gotFile: File? = null
+            withContext(Dispatchers.Main) {
+                CameraHelper.takePhoto(this@MonitoringService, back) { f, info ->
+                    if (f != null) gotFile = f
+                    if (firstInfo.isEmpty()) firstInfo = info
+                    done.countDown()
                 }
-                done.await()
-                count++
-                delay(1000)
             }
-            withContext(Dispatchers.Main) { sendMsg("🟢 Live ended ($count photos)") }
+            done.await()
+            if (gotFile != null) {
+                sendPhotoFile(gotFile!!)
+                count++
+            }
+            delay(2000)
         }
+        withContext(Dispatchers.Main) {
+            sendMsg("🟢 Live ended ($count photos) [$firstInfo]")
+        }
+    }
     }
 
     private fun screen() {
