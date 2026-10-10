@@ -123,32 +123,9 @@ class MonitoringService : LifecycleService() {
 
     override fun onTaskRemoved(rootIntent: Intent?) {
     super.onTaskRemoved(rootIntent)
-    // Process kill කරන්නේ නෑ — "stopped state" එකට යනවා
-    // Service එකම restart වෙන්න දෙනවා
-    try {
-        val restart = Intent(applicationContext, MonitoringService::class.java)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            applicationContext.startForegroundService(restart)
-        } else {
-            applicationContext.startService(restart)
-        }
-    } catch (_: Exception) {}
-
-    // Watchdog එකට 3s ඇතුළත check කරන්න
-    try {
-        val am = getSystemService(Context.ALARM_SERVICE) as AlarmManager
-        val intent = Intent(this, WatchdogReceiver::class.java)
-        val pi = PendingIntent.getBroadcast(
-            this, 1001, intent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
-        val triggerAt = SystemClock.elapsedRealtime() + 3000L
-        try {
-            am.setExactAndAllowWhileIdle(AlarmManager.ELAPSED_REALTIME_WAKEUP, triggerAt, pi)
-        } catch (e: SecurityException) {
-            am.setAndAllowWhileIdle(AlarmManager.ELAPSED_REALTIME_WAKEUP, triggerAt, pi)
-        }
-    } catch (_: Exception) {}
+    // ScreenService (Accessibility) එකෙන් auto-restart වෙනවා
+    // මෙතන මොනවත් කරන්න ඕන නෑ — watchdog එක handle කරනවා
+    Log.d(TAG, "onTaskRemoved — watchdog will restart")
     }
 
     private fun scheduleWatchdog() {
