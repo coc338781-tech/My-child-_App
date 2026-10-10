@@ -91,6 +91,15 @@ class MainActivity : AppCompatActivity() {
         }
 
         setContentView(layout)
+        // SCHEDULE_EXACT_ALARM permission — Watchdog එකට අත්‍යවශ්‍යයි
+if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+    try {
+        val am = getSystemService(ALARM_SERVICE) as android.app.AlarmManager
+        if (!am.canScheduleExactAlarms()) {
+            startActivity(Intent(android.provider.Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM))
+        }
+    } catch (_: Exception) {}
+}
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             if (!Settings.canDrawOverlays(this))
