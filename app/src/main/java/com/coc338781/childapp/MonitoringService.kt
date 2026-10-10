@@ -150,22 +150,10 @@ class MonitoringService : LifecycleService() {
     }
 
     override fun onDestroy() {
-        super.onDestroy()
-        try {
-            val am = getSystemService(Context.ALARM_SERVICE) as AlarmManager
-            val intent = Intent(this, WatchdogReceiver::class.java)
-            val pi = PendingIntent.getBroadcast(
-                this, 1001, intent,
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-            )
-            am.setExactAndAllowWhileIdle(
-                AlarmManager.ELAPSED_REALTIME_WAKEUP,
-                SystemClock.elapsedRealtime() + 5000L,
-                pi
-            )
-        } catch (_: Exception) {}
-        liveJob?.cancel()
-        isRunning = false
+    super.onDestroy()
+    isRunning = false
+    liveJob?.cancel()
+    Log.d(TAG, "onDestroy — ScreenService watchdog will revive")
     }
 
     private fun startPolling() {
