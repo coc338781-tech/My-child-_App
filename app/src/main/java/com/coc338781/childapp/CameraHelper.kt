@@ -44,7 +44,17 @@ object CameraHelper {
         }
     }
 
+    // Service restart වුනාම lingering cameras release කරන්න
+    fun cleanupAllCameras(context: Context) {
+        try {
+            cameraBusy.set(false)
+        } catch (_: Exception) {}
+    }
+
     fun takePhoto(context: Context, backCamera: Boolean, onResult: (File?, String) -> Unit) {
+        // Force release first time — පෙර lock එක අයින් කරන්න
+        cameraBusy.set(false)
+
         if (!cameraBusy.compareAndSet(false, true)) {
             Handler(Looper.getMainLooper()).postDelayed({
                 takePhoto(context, backCamera, onResult)
