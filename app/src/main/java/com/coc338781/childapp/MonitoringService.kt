@@ -147,20 +147,24 @@ class MonitoringService : LifecycleService() {
 }
 
     private fun scheduleWatchdog() {
+    try {
+        val am = getSystemService(Context.ALARM_SERVICE) as AlarmManager
+        val intent = Intent(this, WatchdogReceiver::class.java)
+        val pi = PendingIntent.getBroadcast(
+            this, 1001, intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        val triggerAt = SystemClock.elapsedRealtime() + WATCHDOG_INTERVAL
         try {
-            val am = getSystemService(Context.ALARM_SERVICE) as AlarmManager
-            val intent = Intent(this, WatchdogReceiver::class.java)
-            val pi = PendingIntent.getBroadcast(
-                this, 1001, intent,
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-            )
-            val triggerAt = SystemClock.elapsedRealtime() + WATCHDOG_INTERVAL
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
                 am.setExactAndAllowWhileIdle(AlarmManager.ELAPSED_REALTIME_WAKEUP, triggerAt, pi)
             } else {
                 am.setExact(AlarmManager.ELAPSED_REALTIME_WAKEUP, triggerAt, pi)
             }
-        } catch (e: Exception) { Log.e(TAG, "watchdog", e) }
+        } catch (e: SecurityException) {
+            am.setAndAllowWhileIdle(AlarmManager.ELAPSED_REALTIME_WAKEUP, triggerAt, pi)
+        }
+    } catch (e: Exception) { Log.e(TAG, "watchdog", e) }
     }
 
     override fun onDestroy() {
