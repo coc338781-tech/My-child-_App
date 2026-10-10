@@ -44,13 +44,6 @@ object CameraHelper {
         }
     }
 
-    // Service restart වුනාම lingering cameras release කරන්න
-    fun cleanupAllCameras(context: Context) {
-        try {
-            cameraBusy.set(false)
-        } catch (_: Exception) {}
-    }
-
     fun takePhoto(context: Context, backCamera: Boolean, onResult: (File?, String) -> Unit) {
         // Force release first time — පෙර lock එක අයින් කරන්න
         cameraBusy.set(false)
@@ -80,6 +73,7 @@ object CameraHelper {
         }
     }
 
+    // Clear all / restart පස්සේ camera release වෙන්න 10s ඉඳලා retry
     fun takePhotoWithRetry(context: Context, backCamera: Boolean, onResult: (File?, String) -> Unit) {
         takePhoto(context, backCamera) { file, info ->
             if (file != null) {
