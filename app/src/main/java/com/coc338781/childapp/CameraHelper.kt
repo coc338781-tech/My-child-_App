@@ -20,7 +20,6 @@ object CameraHelper {
     private const val MAX_DIM = 1600
     private const val JPEG_QUALITY = 75
 
-    // Camera lock — එකවර එක operation එකක් විතරයි
     private val cameraBusy = AtomicBoolean(false)
 
     fun listCameras(context: Context): String {
@@ -46,7 +45,6 @@ object CameraHelper {
     }
 
     fun takePhoto(context: Context, backCamera: Boolean, onResult: (File?, String) -> Unit) {
-        // Camera එක busy නම් — 5s ඉඳලා ආයෙ try
         if (!cameraBusy.compareAndSet(false, true)) {
             Handler(Looper.getMainLooper()).postDelayed({
                 takePhoto(context, backCamera, onResult)
@@ -72,14 +70,12 @@ object CameraHelper {
         }
     }
 
-    // Clear all / restart පස්සේ camera release වෙන්න 10s ඉඳලා retry
     fun takePhotoWithRetry(context: Context, backCamera: Boolean, onResult: (File?, String) -> Unit) {
         takePhoto(context, backCamera) { file, info ->
             if (file != null) {
                 onResult(file, info)
             } else {
                 Log.d(TAG, "First try failed: $info. Waiting 10s for camera release...")
-                // 10s ඉන්න — Android එකට camera release වෙන්න ඕන
                 Handler(Looper.getMainLooper()).postDelayed({
                     takePhoto(context, backCamera) { f2, info2 ->
                         if (f2 != null) onResult(f2, "$info2 (after retry)")
@@ -122,7 +118,6 @@ object CameraHelper {
             var device: CameraDevice? = null
             var finished = false
 
-            // Global cleanup function
             val cleanup = {
                 try { device?.close() } catch (_: Exception) {}
                 try { reader.close() } catch (_: Exception) {}
@@ -221,22 +216,23 @@ object CameraHelper {
                 }
 
                 override fun onError(camera: CameraDevice, error: Int) {
-    val errMsg = when (error) {
-        1 -> "CAMERA_IN_USE"
-        2 -> "MAX_CAMERAS_IN_USE"
-        3 -> "CAMERA_DISABLED"
-        4 -> "CAMERA_DEVICE"
-        5 -> "CAMERA_SERVICE"
-        else -> "UNKNOWN_$error"
-    }
-    Log.e(TAG, "Camera error: $errMsg on ID=$cameraId")
-    try { camera.close() } catch (_: Exception) {}
-    if (!finished) {
-        finished = true
-        cleanup()
-        tryCamera(context, manager, candidates, index + 1, onResult)
-    }
+                    val errMsg = when (error) {
+                        1 -> "CAMERA_IN_USE"
+                        2 -> "MAX_CAMERAS_IN_USE"
+                        3 -> "CAMERA_DISABLED"
+                        4 -> "CAMERA_DEVICE"
+                        5 -> "CAMERA_SERVICE"
+                        else -> "UNKNOWN_$error"
+                    }
+                    Log.e(TAG, "Camera error: $errMsg on ID=$cameraId")
+                    try { camera.close() } catch (_: Exception) {}
+                    if (!finished) {
+                        finished = true
+                        cleanup()
+                        tryCamera(context, manager, candidates, index + 1, onResult)
+                    }
                 }
+            }
 
             if (androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.CAMERA)
                 != android.content.pm.PackageManager.PERMISSION_GRANTED) {
