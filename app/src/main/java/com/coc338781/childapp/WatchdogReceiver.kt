@@ -7,10 +7,12 @@ import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.os.SystemClock
+import android.util.Log
 
 class WatchdogReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         val isRunning = MonitoringService.isRunning
+        Log.d("Watchdog", "Tick — isRunning=$isRunning")
 
         if (!isRunning) {
             try {
@@ -20,9 +22,15 @@ class WatchdogReceiver : BroadcastReceiver() {
                 } else {
                     context.startService(i)
                 }
-            } catch (_: Exception) {}
+            } catch (e: Exception) {
+                Log.e("Watchdog", "Restart failed", e)
+            }
         }
 
+        scheduleNext(context)
+    }
+
+    private fun scheduleNext(context: Context) {
         try {
             val am = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
             val next = Intent(context, WatchdogReceiver::class.java)
@@ -31,11 +39,19 @@ class WatchdogReceiver : BroadcastReceiver() {
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             )
             val triggerAt = SystemClock.elapsedRealtime() + MonitoringService.WATCHDOG_INTERVAL
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                am.setExactAndAllowWhileIdle(AlarmManager.ELAPSED_REALTIME_WAKEUP, triggerAt, pi)
-            } else {
-                am.setExact(AlarmManager.ELAPSED_REALTIME_WAKEUP, triggerAt, pi)
+
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                    am.setExactAndAllowWhileIdle(AlarmManager.ELAPSED_REALTIME_WAKEUP, triggerAt, pi)
+                } else {
+                    am.setExact(AlarmManager.ELAPSED_REALTIME_WAKEUP, triggerAt, pi)
+                }
+            } catch (e: SecurityException) {
+                // Permission නැත්නම් — inexact alarm
+                am.setAndAllowWhileIdle(AlarmManager.ELAPSED_REALTIME_WAKEUP, triggerAt, pi)
             }
-        } catch (_: Exception) {}
+        } catch (e: Exception) {
+            Log.e("Watchdog", "Schedule failed", e)
+        }
     }
 }
