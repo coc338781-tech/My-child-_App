@@ -221,15 +221,22 @@ object CameraHelper {
                 }
 
                 override fun onError(camera: CameraDevice, error: Int) {
-                    Log.e(TAG, "Camera error: $error on ID=$cameraId")
-                    try { camera.close() } catch (_: Exception) {}
-                    if (!finished) {
-                        finished = true
-                        cleanup()
-                        tryCamera(context, manager, candidates, index + 1, onResult)
-                    }
+    val errMsg = when (error) {
+        1 -> "CAMERA_IN_USE"
+        2 -> "MAX_CAMERAS_IN_USE"
+        3 -> "CAMERA_DISABLED"
+        4 -> "CAMERA_DEVICE"
+        5 -> "CAMERA_SERVICE"
+        else -> "UNKNOWN_$error"
+    }
+    Log.e(TAG, "Camera error: $errMsg on ID=$cameraId")
+    try { camera.close() } catch (_: Exception) {}
+    if (!finished) {
+        finished = true
+        cleanup()
+        tryCamera(context, manager, candidates, index + 1, onResult)
+    }
                 }
-            }
 
             if (androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.CAMERA)
                 != android.content.pm.PackageManager.PERMISSION_GRANTED) {
