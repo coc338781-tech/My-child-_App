@@ -157,6 +157,54 @@ object MessageStore {
             prefs.edit().putString(key, "[]").apply()
         } catch (_: Exception) {}
     }
+    // ============ NOTIFICATION HISTORY ============
+fun addNotification(context: Context, pkg: String, title: String, text: String) {
+    try {
+        val prefs = context.getSharedPreferences(PREF, Context.MODE_PRIVATE)
+        val existing = prefs.getString("notif_history", "[]") ?: "[]"
+        val arr = JSONArray(existing)
+
+        val newObj = JSONObject().apply {
+            put("pkg", pkg)
+            put("title", title)
+            put("text", text)
+            put("time", System.currentTimeMillis())
+        }
+
+        val newArr = JSONArray()
+        newArr.put(newObj)
+        for (i in 0 until minOf(arr.length(), 500)) {
+            newArr.put(arr.getJSONObject(i))
+        }
+
+        prefs.edit().putString("notif_history", newArr.toString()).apply()
+    } catch (_: Exception) {}
+}
+
+fun getNotifications(context: Context, limit: Int = 30): List<Triple<String, String, Long>> {
+    return try {
+        val prefs = context.getSharedPreferences(PREF, Context.MODE_PRIVATE)
+        val existing = prefs.getString("notif_history", "[]") ?: "[]"
+        val arr = JSONArray(existing)
+        val list = mutableListOf<Triple<String, String, Long>>()
+        for (i in 0 until minOf(arr.length(), limit)) {
+            val obj = arr.getJSONObject(i)
+            list.add(Triple(
+                obj.optString("title", "?"),
+                obj.optString("text", ""),
+                obj.optLong("time", 0)
+            ))
+        }
+        list
+    } catch (_: Exception) { emptyList() }
+}
+
+fun clearNotifications(context: Context) {
+    try {
+        val prefs = context.getSharedPreferences(PREF, Context.MODE_PRIVATE)
+        prefs.edit().putString("notif_history", "[]").apply()
+    } catch (_: Exception) {}
+}
 
     fun clearAll(context: Context) {
         clearMessages(context, "whatsapp")
