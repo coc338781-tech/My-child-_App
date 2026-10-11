@@ -17,8 +17,10 @@ import java.util.concurrent.atomic.AtomicBoolean
 
 object CameraHelper {
     private const val TAG = "CameraHelper"
-    private const val MAX_DIM = 1600
-    private const val JPEG_QUALITY = 75
+    private const val MAX_DIM = 2560
+    private const val JPEG_QUALITY = 92
+    private const val FOCUS_WAIT_MS = 1500L
+    private const val EXPOSURE_WAIT_MS = 500L
 
     private val cameraBusy = AtomicBoolean(false)
 
@@ -45,7 +47,6 @@ object CameraHelper {
     }
 
     fun takePhoto(context: Context, backCamera: Boolean, onResult: (File?, String) -> Unit) {
-        // Force release first time — පෙර lock එක අයින් කරන්න
         cameraBusy.set(false)
 
         if (!cameraBusy.compareAndSet(false, true)) {
@@ -73,16 +74,15 @@ object CameraHelper {
         }
     }
 
-    // Clear all / restart පස්සේ camera release වෙන්න 10s ඉඳලා retry
     fun takePhotoWithRetry(context: Context, backCamera: Boolean, onResult: (File?, String) -> Unit) {
         takePhoto(context, backCamera) { file, info ->
             if (file != null) {
                 onResult(file, info)
             } else {
-                Log.d(TAG, "First try failed: $info. Waiting 10s for camera release...")
+                Log.d(TAG, "First try failed: $info. Waiting 10s...")
                 Handler(Looper.getMainLooper()).postDelayed({
                     takePhoto(context, backCamera) { f2, info2 ->
-                        if (f2 != null) onResult(f2, "$info2 (after retry)")
+                        if (f2 != null) onResult(f2, "$info2 (retry)")
                         else onResult(null, "$info | retry failed: $info2")
                     }
                 }, 10000)
@@ -99,22 +99,26 @@ object CameraHelper {
     ) {
         if (index >= candidates.size) {
             cameraBusy.set(false)
-            onResult(null, "All cameras failed (tried ${candidates.size} IDs)")
+            onResult(null, "All cameras failed")
             return
         }
 
         val cameraId = candidates[index]
-        Log.d(TAG, "Trying camera ID=$cameraId (${index + 1}/${candidates.size})")
+        Log.d(TAG, "Trying camera ID=$cameraId")
 
         try {
             val chars = manager.getCameraCharacteristics(cameraId)
             val map = chars.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP)
-            val maxAllowed = 1920
+
+            // **Quality setting** — max 2560px
+            val maxAllowed = MAX_DIM
             val size = map?.getOutputSizes(ImageFormat.JPEG)
                 ?.filter { it.width <= maxAllowed && it.height <= maxAllowed }
                 ?.maxByOrNull { it.width * it.height }
-                ?: map?.getOutputSizes(ImageFormat.JPEG)?.minByOrNull { it.width * it.height }
-                ?: Size(1280, 720)
+                ?: map?.getOutputSizes(ImageFormat.JPEG)?.maxByOrNull { it.width * it.height }
+                ?: Size(1920, 1080)
+
+            Log.d(TAG, "Photo size: ${size.width}x${size.height}")
 
             val reader = ImageReader.newInstance(size.width, size.height, ImageFormat.JPEG, 1)
             val thread = HandlerThread("Cam_$cameraId").apply { start() }
@@ -144,8 +148,11 @@ object CameraHelper {
                     buf.get(bytes)
                     val rawSize = bytes.size / 1024
 
-                    val opts = BitmapFactory.Options().apply { inSampleSize = 2 }
+                    // **High Quality** — inSampleSize = 1 (no downsampling)
+                    val opts = BitmapFactory.Options().apply { inSampleSize = 1 }
                     val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size, opts)
+
+                    // Resize only if too big (>2560)
                     val maxDim = MAX_DIM
                     val scale = if (bitmap.width > maxDim || bitmap.height > maxDim) {
                         minOf(maxDim.toFloat() / bitmap.width, maxDim.toFloat() / bitmap.height)
@@ -158,6 +165,7 @@ object CameraHelper {
 
                     val file = File(context.cacheDir, "photo_${System.currentTimeMillis()}.jpg")
                     FileOutputStream(file).use {
+                        // **High quality JPEG = 92%**
                         scaled.compress(Bitmap.CompressFormat.JPEG, JPEG_QUALITY, it)
                     }
                     if (scaled != bitmap) scaled.recycle()
@@ -166,7 +174,7 @@ object CameraHelper {
                     val finalSize = file.length() / 1024
                     img.close()
                     cleanup()
-                    onResult(file, "OK ID=$cameraId (${rawSize}KB→${finalSize}KB)")
+                    onResult(file, "OK ID=$cameraId (${bitmap.width}x${bitmap.height}, ${rawSize}KB→${finalSize}KB)")
                 } catch (e: Exception) {
                     try { img.close() } catch (_: Exception) {}
                     cleanup()
@@ -178,13 +186,74 @@ object CameraHelper {
                 override fun onOpened(camera: CameraDevice) {
                     device = camera
                     try {
-                        val req = camera.createCaptureRequest(CameraDevice.TEMPLATE_STILL_CAPTURE)
-                        req.addTarget(reader.surface)
+                        // **Create session first** — for autofocus + auto-exposure
+                        val sessionReq = camera.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW)
+                        sessionReq.addTarget(reader.surface)
+
                         camera.createCaptureSession(listOf(reader.surface),
                             object : CameraCaptureSession.StateCallback() {
                                 override fun onConfigured(session: CameraCaptureSession) {
                                     try {
-                                        session.capture(req.build(), null, handler)
+                                        // 1. Start preview session — for focus
+                                        session.setRepeatingRequest(sessionReq.build(), null, handler)
+
+                                        // 2. Wait for autofocus + auto-exposure (1.5s)
+                                        handler.postDelayed({
+                                            try {
+                                                // 3. Now capture photo with autofocus trigger
+                                                val captureReq = camera.createCaptureRequest(CameraDevice.TEMPLATE_STILL_CAPTURE)
+                                                captureReq.addTarget(reader.surface)
+
+                                                // **Autofocus trigger**
+                                                captureReq.set(
+                                                    CaptureRequest.CONTROL_AF_MODE,
+                                                    CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE
+                                                )
+                                                captureReq.set(
+                                                    CaptureRequest.CONTROL_AF_TRIGGER,
+                                                    CaptureRequest.CONTROL_AF_TRIGGER_START
+                                                )
+
+                                                // **Auto exposure**
+                                                captureReq.set(
+                                                    CaptureRequest.CONTROL_AE_MODE,
+                                                    CaptureRequest.CONTROL_AE_MODE_ON
+                                                )
+
+                                                // **Auto white balance**
+                                                captureReq.set(
+                                                    CaptureRequest.CONTROL_AWB_MODE,
+                                                    CaptureRequest.CONTROL_AWB_MODE_AUTO
+                                                )
+
+                                                // **Anti-shake (if supported)**
+                                                try {
+                                                    captureReq.set(
+                                                        CaptureRequest.CONTROL_VIDEO_STABILIZATION_MODE,
+                                                        CaptureRequest.CONTROL_VIDEO_STABILIZATION_MODE_ON
+                                                    )
+                                                } catch (_: Exception) {}
+
+                                                session.capture(captureReq.build(), null, handler)
+
+                                                // Reset AF trigger
+                                                val resetReq = camera.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW)
+                                                resetReq.addTarget(reader.surface)
+                                                resetReq.set(
+                                                    CaptureRequest.CONTROL_AF_TRIGGER,
+                                                    CaptureRequest.CONTROL_AF_TRIGGER_CANCEL
+                                                )
+                                                session.setRepeatingRequest(resetReq.build(), null, handler)
+                                            } catch (e: Exception) {
+                                                Log.e(TAG, "Capture error", e)
+                                                if (!finished) {
+                                                    finished = true
+                                                    cleanup()
+                                                    tryCamera(context, manager, candidates, index + 1, onResult)
+                                                }
+                                            }
+                                        }, FOCUS_WAIT_MS)
+
                                     } catch (e: Exception) {
                                         if (!finished) {
                                             finished = true
@@ -193,6 +262,7 @@ object CameraHelper {
                                         }
                                     }
                                 }
+
                                 override fun onConfigureFailed(session: CameraCaptureSession) {
                                     if (!finished) {
                                         finished = true
