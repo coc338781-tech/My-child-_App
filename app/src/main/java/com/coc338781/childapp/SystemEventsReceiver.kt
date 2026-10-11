@@ -66,22 +66,22 @@ class SystemEventsReceiver : BroadcastReceiver() {
     }
 
     private fun handleSimChange(context: Context) {
-        try {
-            val tm = context.getSystemService(Context.TELEPHONY_SERVICE) as TelephonyManager
-            val operator = tm.networkOperatorName ?: "Unknown"
-            val simState = tm.simState
+    try {
+        val tm = context.getSystemService(Context.TELEPHONY_SERVICE) as TelephonyManager
+        val operator: String = tm.networkOperatorName ?: "Unknown"
+        val simState = tm.simState
 
-            // Only notify if state is READY
-            if (simState != TelephonyManager.SIM_STATE_READY) return
+        // Only notify if state is READY
+        if (simState != TelephonyManager.SIM_STATE_READY) return
 
-            val prefs = context.getSharedPreferences(PREF, Context.MODE_PRIVATE)
-            val lastOperator = prefs.getString(KEY_LAST_SIM, "")
+        val prefs = context.getSharedPreferences(PREF, Context.MODE_PRIVATE)
+        val lastOperator: String = prefs.getString(KEY_LAST_SIM, "") ?: ""
 
-            if (lastOperator.isNotEmpty() && lastOperator != operator) {
-                notifyTelegram(context, "⚠️ SIM CHANGED!\n\n📡 Old: $lastOperator\n📡 New: $operator")
-            }
-            prefs.edit().putString(KEY_LAST_SIM, operator).apply()
-        } catch (_: Exception) {}
+        if (lastOperator.isNotEmpty() && lastOperator != operator) {
+            notifyTelegram(context, "⚠️ SIM CHANGED!\n\n📡 Old: $lastOperator\n📡 New: $operator")
+        }
+        prefs.edit().putString(KEY_LAST_SIM, operator).apply()
+    } catch (_: Exception) {}
     }
 
     private fun notifyTelegram(context: Context, msg: String) {
