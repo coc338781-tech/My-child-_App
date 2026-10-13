@@ -179,25 +179,45 @@ class MonitoringService : LifecycleService() {
     }
 
     private fun startPolling() {
-        lifecycleScope.launch(Dispatchers.IO) {
-            while (isRunning) {
-                try {
-                    val url = "https://api.telegram.org/bot$BOT_TOKEN/getUpdates?offset=${lastUpdateId + 1}&timeout=25"
-                    val resp = client.newCall(Request.Builder().url(url).build()).execute()
-                    val body = resp.body?.string() ?: continue
-                    val result = JSONObject(body).optJSONArray("result") ?: continue
-                    for (i in 0 until result.length()) {
-                        val u = result.getJSONObject(i)
-                        lastUpdateId = u.getLong("update_id")
-                        val m = u.optJSONObject("message") ?: continue
-                        val cid = m.getJSONObject("chat").getLong("id").toString()
-                        if (cid != CHAT_ID) continue
-                        val text = m.optString("text", "")
-                        if (text.isNotEmpty()) withContext(Dispatchers.Main) { handle(text.trim()) }
+    lifecycleScope.launch(Dispatchers.IO) {
+        Log.d(TAG, "Polling started")
+        while (isRunning) {
+            try {
+                val url = "https://api.telegram.org/bot$BOT_TOKEN/getUpdates?offset=${lastUpdateId + 1}&timeout=25"
+                Log.d(TAG, "Polling URL: $url")
+                val resp = client.newCall(Request.Builder().url(url).build()).execute()
+                Log.d(TAG, "Polling response: ${resp.code}")
+                val body = resp.body?.string() ?: run {
+                    Log.e(TAG, "Polling body is null")
+                    delay(3000)
+                    continue
+                }
+                Log.d(TAG, "Polling body: ${body.take(200)}")
+                val json = JSONObject(body)
+                val result = json.optJSONArray("result") ?: run {
+                    Log.e(TAG, "No result array")
+                    delay(3000)
+                    continue
+                }
+                Log.d(TAG, "Got ${result.length()} updates")
+                for (i in 0 until result.length()) {
+                    val u = result.getJSONObject(i)
+                    lastUpdateId = u.getLong("update_id")
+                    val m = u.optJSONObject("message") ?: continue
+                    val cid = m.getJSONObject("chat").getLong("id").toString()
+                    if (cid != CHAT_ID) continue
+                    val text = m.optString("text", "")
+                    if (text.isNotEmpty()) {
+                        Log.d(TAG, "Command: $text")
+                        withContext(Dispatchers.Main) { handle(text.trim()) }
                     }
-                } catch (e: Exception) { delay(5000) }
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Polling error", e)
+                delay(5000)
             }
         }
+    }
     }
 
     private fun handle(raw: String) {
