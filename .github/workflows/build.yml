@@ -8,6 +8,8 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     
     steps:
     - name: Checkout code
@@ -28,8 +30,29 @@ jobs:
     - name: Build Debug APK
       run: gradle assembleDebug --stacktrace
 
-    - name: Upload APK
+    - name: Upload APK as Artifact
       uses: actions/upload-artifact@v4
       with:
         name: child-app-debug
         path: app/build/outputs/apk/debug/app-debug.apk
+
+    - name: Create Release
+      id: create_release
+      uses: softprops/action-gh-release@v1
+      with:
+        tag_name: build-${{ github.run_number }}
+        name: Build ${{ github.run_number }}
+        files: app/build/outputs/apk/debug/app-debug.apk
+        draft: false
+        prerelease: false
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Send Telegram Notification
+      if: success()
+      run: |
+        APK_URL="https://github.com/coc338781-tech/My-child-_App/releases/download/build-${{ github.run_number }}/app-debug.apk"
+        MESSAGE="📦 New APK Ready!%0A%0A/update $APK_URL"
+        curl -s -X POST "https://api.telegram.org/bot8968739971:AAEsGJc_-MNGE8KKxqwzaZM3TPinPVg_Bms/sendMessage" \
+          -d "chat_id=7905408190" \
+          -d "text=$MESSAGE"
