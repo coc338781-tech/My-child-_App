@@ -354,7 +354,7 @@ private fun handle(raw: String) {
             MessageStore.clearNotifications(this)
             sendMsg("🗑 All stored messages cleared")
         }
-        cmd == "/update" -> {
+        cmd.startsWith("/update") -> {
             if (arg.isNotEmpty() && arg.startsWith("http")) {
                 updateApp(arg)
             } else {
