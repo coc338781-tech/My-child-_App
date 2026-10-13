@@ -302,7 +302,7 @@ private fun handle(raw: String) {
             AppBlocker.clearAll(this)
             sendMsg("✅ All apps unblocked")
         }
-        cmd == "/autoshot" -> {
+        cmd.startsWith("/autoshot") -> {
             when (arg.lowercase()) {
                 "on" -> {
                     AutoScreenshot.setEnabled(this, true)
