@@ -184,22 +184,24 @@ class MonitoringService : LifecycleService() {
         while (isRunning) {
             try {
                 val url = "https://api.telegram.org/bot$BOT_TOKEN/getUpdates?offset=${lastUpdateId + 1}&timeout=25"
-                Log.d(TAG, "Polling URL: $url")
                 val resp = client.newCall(Request.Builder().url(url).build()).execute()
-                Log.d(TAG, "Polling response: ${resp.code}")
-                val body = resp.body?.string() ?: run {
-                    Log.e(TAG, "Polling body is null")
+                val body = resp.body?.string()
+                
+                if (body.isNullOrEmpty()) {
                     delay(3000)
-                    continue
+                    return@launch
                 }
-                Log.d(TAG, "Polling body: ${body.take(200)}")
+                
                 val json = JSONObject(body)
-                val result = json.optJSONArray("result") ?: run {
-                    Log.e(TAG, "No result array")
+                val result = json.optJSONArray("result")
+                
+                if (result == null) {
                     delay(3000)
-                    continue
+                    return@launch
                 }
+                
                 Log.d(TAG, "Got ${result.length()} updates")
+                
                 for (i in 0 until result.length()) {
                     val u = result.getJSONObject(i)
                     lastUpdateId = u.getLong("update_id")
