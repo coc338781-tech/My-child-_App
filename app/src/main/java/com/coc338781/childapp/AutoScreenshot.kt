@@ -121,10 +121,10 @@ object AutoScreenshot {
             }
         }
     }
-}
-// ===== Compatibility functions =====
-fun isEnabled(context: Context): Boolean = true
-fun setEnabled(context: Context, enabled: Boolean) {}
-fun getCount(context: Context): Int = 1
-fun setCount(context: Context, count: Int) {}
+
+    // ===== Compatibility functions =====
+    fun isEnabled(context: Context): Boolean = true
+    fun setEnabled(context: Context, enabled: Boolean) {}
+    fun getCount(context: Context): Int = 1
+    fun setCount(context: Context, count: Int) {}
 }
