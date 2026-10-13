@@ -221,7 +221,7 @@ class MonitoringService : LifecycleService() {
         }
     }
     }
-
+private fun handle(raw: String) {
     val cmd = raw.lowercase()
 val arg = raw.substringAfter(' ', "").trim()
     when {
