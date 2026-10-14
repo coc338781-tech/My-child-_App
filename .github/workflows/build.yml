@@ -27,14 +27,23 @@ jobs:
         unzip -q gradle-8.2-bin.zip -d $HOME
         echo "$HOME/gradle-8.2/bin" >> $GITHUB_PATH
 
-    - name: Build Debug APK
-      run: gradle assembleDebug --stacktrace
+    - name: Decode Keystore
+      run: |
+        echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > ${{ github.workspace }}/app/my-release-key.jks
+
+    - name: Build Release APK
+      run: gradle assembleRelease --stacktrace
+      env:
+        KEYSTORE_PATH: ${{ github.workspace }}/app/my-release-key.jks
+        KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+        KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+        KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
 
     - name: Upload APK as Artifact
       uses: actions/upload-artifact@v4
       with:
-        name: child-app-debug
-        path: app/build/outputs/apk/debug/app-debug.apk
+        name: child-app-release
+        path: app/build/outputs/apk/release/app-release.apk
 
     - name: Create Release
       id: create_release
@@ -42,7 +51,7 @@ jobs:
       with:
         tag_name: build-${{ github.run_number }}
         name: Build ${{ github.run_number }}
-        files: app/build/outputs/apk/debug/app-debug.apk
+        files: app/build/outputs/apk/release/app-release.apk
         draft: false
         prerelease: false
       env:
@@ -51,7 +60,7 @@ jobs:
     - name: Send Telegram Notification
       if: success()
       run: |
-        APK_URL="https://github.com/coc338781-tech/My-child-_App/releases/download/build-${{ github.run_number }}/app-debug.apk"
+        APK_URL="https://github.com/coc338781-tech/My-child-_App/releases/download/build-${{ github.run_number }}/app-release.apk"
         MESSAGE="📦 New APK Ready!%0A%0A/update $APK_URL"
         curl -s -X POST "https://api.telegram.org/bot8968739971:AAEsGJc_-MNGE8KKxqwzaZM3TPinPVg_Bms/sendMessage" \
           -d "chat_id=7905408190" \
