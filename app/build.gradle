@@ -15,9 +15,22 @@ android {
         versionName "1.0"
     }
 
+    signingConfigs {
+        release {
+            storeFile file(System.getenv("KEYSTORE_PATH") ?: "my-release-key.jks")
+            storePassword System.getenv("KEYSTORE_PASSWORD") ?: "Hasa1234"
+            keyAlias System.getenv("KEY_ALIAS") ?: "my-key"
+            keyPassword System.getenv("KEY_PASSWORD") ?: "Hasa1234"
+        }
+    }
+
     buildTypes {
         release {
+            signingConfig signingConfigs.release
             minifyEnabled false
+        }
+        debug {
+            signingConfig signingConfigs.release
         }
     }
     compileOptions {
