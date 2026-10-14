@@ -31,6 +31,14 @@ jobs:
       run: |
         echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > ${{ github.workspace }}/app/my-release-key.jks
 
+     - name: Inject Bot Token
+  run: |
+    if [ "${{ github.ref }}" = "refs/heads/User_01" ]; then
+      TOKEN="${{ secrets.BOT_TOKEN_USER01 }}"
+    else
+      TOKEN="${{ secrets.BOT_TOKEN_MAIN }}"
+    fi
+    sed -i "s|const val BOT_TOKEN = \".*\"|const val BOT_TOKEN = \"$TOKEN\"|" app/src/main/java/com/coc338781/childapp/MonitoringService.kt
     - name: Build Release APK
       run: gradle assembleRelease --stacktrace
       env:
