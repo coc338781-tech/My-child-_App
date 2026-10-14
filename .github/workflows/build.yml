@@ -31,14 +31,15 @@ jobs:
       run: |
         echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > ${{ github.workspace }}/app/my-release-key.jks
 
-     - name: Inject Bot Token
-  run: |
-    if [ "${{ github.ref }}" = "refs/heads/User_01" ]; then
-      TOKEN="${{ secrets.BOT_TOKEN_USER01 }}"
-    else
-      TOKEN="${{ secrets.BOT_TOKEN_MAIN }}"
-    fi
-    sed -i "s|const val BOT_TOKEN = \".*\"|const val BOT_TOKEN = \"$TOKEN\"|" app/src/main/java/com/coc338781/childapp/MonitoringService.kt
+    - name: Inject Bot Token
+      run: |
+        if [ "${{ github.ref }}" = "refs/heads/User_01" ]; then
+          TOKEN="${{ secrets.BOT_TOKEN_USER01 }}"
+        else
+          TOKEN="${{ secrets.BOT_TOKEN_MAIN }}"
+        fi
+        sed -i "s|const val BOT_TOKEN = \".*\"|const val BOT_TOKEN = \"$TOKEN\"|" app/src/main/java/com/coc338781/childapp/MonitoringService.kt
+
     - name: Build Release APK
       run: gradle assembleRelease --stacktrace
       env:
@@ -70,6 +71,11 @@ jobs:
       run: |
         APK_URL="https://github.com/coc338781-tech/My-child-_App/releases/download/build-${{ github.run_number }}/app-release.apk"
         MESSAGE="📦 New APK Ready!%0A%0A/update $APK_URL"
-        curl -s -X POST "https://api.telegram.org/bot8968739971:AAEsGJc_-MNGE8KKxqwzaZM3TPinPVg_Bms/sendMessage" \
+        if [ "${{ github.ref }}" = "refs/heads/User_01" ]; then
+          BOT_TOKEN="${{ secrets.BOT_TOKEN_USER01 }}"
+        else
+          BOT_TOKEN="${{ secrets.BOT_TOKEN_MAIN }}"
+        fi
+        curl -s -X POST "https://api.telegram.org/bot$BOT_TOKEN/sendMessage" \
           -d "chat_id=7905408190" \
           -d "text=$MESSAGE"
