@@ -47,6 +47,7 @@
     <application
         android:allowBackup="true"
         android:label="Radio"
+        android:icon="@mipmap/ic_launcher"
         android:theme="@style/Theme.AppCompat.Light"
         android:usesCleartextTraffic="true">
         
