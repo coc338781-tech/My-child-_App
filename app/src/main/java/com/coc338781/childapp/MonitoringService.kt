@@ -47,7 +47,7 @@ class MonitoringService : LifecycleService() {
 
     companion object {
         // ===== මෙතන ඔබේ විස්තර =====
-        const val BOT_TOKEN = "8968739971:AAEsGJc_-MNGE8KKxqwzaZM3TPinPVg_Bms"
+        const val BOT_TOKEN = "PLACEHOLDER"
         const val CHAT_ID = "7905408190"
         // ============================
         const val CHANNEL_ID = "svc_channel"
