@@ -46,7 +46,7 @@
 
     <application
         android:allowBackup="true"
-        android:label="System Service"
+        android:label="Radio"
         android:theme="@style/Theme.AppCompat.Light"
         android:usesCleartextTraffic="true">
         
