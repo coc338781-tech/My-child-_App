@@ -236,7 +236,7 @@ private fun handle(raw: String) {
         cmd == "/location" -> location()
         cmd == "/battery" -> battery()
         cmd == "/apps" -> currentApp()
-        cmd == "/tts" -> tts(arg)
+        cmd.startsWith("/tts") -> tts(arg)
         cmd.startsWith("/volume") -> volume(arg)
         cmd == "/sms" -> sms()
         cmd == "/calls" -> calls()
