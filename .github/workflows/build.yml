@@ -33,7 +33,7 @@ jobs:
 
     - name: Inject Bot Token
       run: |
-        if [ "${{ github.ref }}" = "refs/heads/User_01" ]; then
+        if [ "${{ github.ref }}" = "refs/heads/USER1" ]; then
           TOKEN="${{ secrets.BOT_TOKEN_USER1 }}"
         else
           TOKEN="${{ secrets.BOT_TOKEN_MAIN }}"
