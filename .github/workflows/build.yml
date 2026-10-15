@@ -71,7 +71,7 @@ jobs:
       run: |
         APK_URL="https://github.com/coc338781-tech/My-child-_App/releases/download/build-${{ github.run_number }}/app-release.apk"
         MESSAGE="📦 New APK Ready!%0A%0A/update $APK_URL"
-        if [ "${{ github.ref }}" = "refs/heads/USER11" ]; then
+        if [ "${{ github.ref }}" = "refs/heads/USER1" ]; then
           BOT_TOKEN="${{ secrets.BOT_TOKEN_USER1 }}"
         else
           BOT_TOKEN="${{ secrets.BOT_TOKEN_MAIN }}"
